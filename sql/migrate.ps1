@@ -1,4 +1,4 @@
-# Beehive-Blog 数据库迁移入口（Windows PowerShell）
+# Beehive-IM 数据库迁移入口（Windows PowerShell）
 #
 # 全覆盖（默认）：-Mode versioned
 #   每个 .sql 文件在一个事务内整段执行，schema_migrations 记录 checksum，适合空库或严格与仓库一致。
@@ -34,7 +34,7 @@ if (-not $Dsn) {
     $Dsn = $env:DB_DSN
 }
 if (-not $Dsn) {
-    $Dsn = 'postgres://Beehive-Blog:Beehive-Blog@127.0.0.1:5432/Beehive-Blog?sslmode=disable'
+    $Dsn = 'postgres://Beehive-IM:Beehive-IM@127.0.0.1:5432/Beehive-IM?sslmode=disable'
 }
 
 $goArgs = @(

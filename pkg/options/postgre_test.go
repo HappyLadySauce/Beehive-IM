@@ -151,10 +151,10 @@ func TestPostgreOptionsAddFlagsDefaults(t *testing.T) {
 	if got, want := opts.Port, 5432; got != want {
 		t.Errorf("PostgreOptions.Port = %d, want %d", got, want)
 	}
-	if got, want := opts.User, "Beehive-Blog"; got != want {
+	if got, want := opts.User, "Beehive-IM"; got != want {
 		t.Errorf("PostgreOptions.User = %q, want %q", got, want)
 	}
-	if got, want := opts.DB, "Beehive-Blog"; got != want {
+	if got, want := opts.DB, "Beehive-IM"; got != want {
 		t.Errorf("PostgreOptions.DB = %q, want %q", got, want)
 	}
 	if got, want := opts.SSLMode, "disable"; got != want {

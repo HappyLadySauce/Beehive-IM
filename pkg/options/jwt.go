@@ -62,7 +62,7 @@ func (j *JWTOptions) Validate() error {
 // AddFlags registers JWT flags on the supplied FlagSet.
 // AddFlags 将 JWT 相关命令行标志注册到给定的 FlagSet。
 func (j *JWTOptions) AddFlags(fs *pflag.FlagSet) {
-	fs.StringVar(&j.Issuer, "jwt-issuer", "beehive-blog", "JWT iss claim and verifier expected issuer")
+	fs.StringVar(&j.Issuer, "jwt-issuer", "Beehive-IM", "JWT iss claim and verifier expected issuer")
 	fs.StringVar(&j.Secret, "jwt-secret", "", "HMAC-SHA256 signing secret (>= 32 bytes, required)")
 	fs.DurationVar(&j.AccessTTL, "jwt-access-ttl", 15*time.Minute, "Access token lifetime")
 	fs.DurationVar(&j.RefreshTTL, "jwt-refresh-ttl", 7*24*time.Hour, "Refresh token lifetime (must be > jwt-access-ttl)")

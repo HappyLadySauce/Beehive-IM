@@ -1,0 +1,23 @@
+{
+    "schemes": [
+        "http",
+        "https"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "REST API for Beehive Blog (v1). JSON envelope: code (HTTP-style), message, data. 中文：Beehive Blog REST API（v1）；响应为 code、message、data 的 JSON 包装。",
+        "title": "Beehive Blog HTTP API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {},
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Send header Authorization with value \"Bearer \" plus the JWT access token. 中文：请求头 Authorization，值为 Bearer、空格与 access token 拼接。",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

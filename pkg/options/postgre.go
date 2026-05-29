@@ -69,9 +69,9 @@ func (p *PostgreOptions) Validate() error {
 func (p *PostgreOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&p.Host, "postgres-host", "127.0.0.1", "PostgreSQL hostname or IP address")
 	fs.IntVar(&p.Port, "postgres-port", 5432, "PostgreSQL server TCP port")
-	fs.StringVar(&p.User, "postgres-user", "Beehive-Blog", "PostgreSQL user name")
+	fs.StringVar(&p.User, "postgres-user", "Beehive-IM", "PostgreSQL user name")
 	fs.StringVar(&p.Password, "postgres-password", "", "PostgreSQL password")
-	fs.StringVar(&p.DB, "postgres-db", "Beehive-Blog", "PostgreSQL database name")
+	fs.StringVar(&p.DB, "postgres-db", "Beehive-IM", "PostgreSQL database name")
 	fs.StringVar(&p.SSLMode, "postgres-ssl-mode", "disable", "PostgreSQL sslmode (disable, allow, prefer, require, verify-ca, verify-full)")
 	fs.IntVar(&p.MaxIdleConns, "postgres-max-idle-conns", 10, "Maximum number of idle connections in the pool")
 	fs.IntVar(&p.MaxOpenConns, "postgres-max-open-conns", 100, "Maximum number of open connections (0 means unlimited)")

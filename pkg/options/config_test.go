@@ -28,7 +28,7 @@ func TestInitRegistersConfigFlagOnPflagCommandLine(t *testing.T) {
 // TestAddConfigFlagAddsFlagToFlagSet 验证共享 --config 以引用方式挂入自定义 FlagSet。
 func TestAddConfigFlagAddsFlagToFlagSet(t *testing.T) {
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
-AddConfigFlag(fs, "beehive-blog")
+	AddConfigFlag(fs, "Beehive-IM")
 	got := fs.Lookup("config")
 	if got == nil {
 		t.Errorf("fs.Lookup(config) = nil, want non-nil *pflag.Flag")
@@ -51,7 +51,7 @@ func TestAddConfigFlagBindsEnvWithBasenamePrefix(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
-AddConfigFlag(fs, "beehive-blog")
+	AddConfigFlag(fs, "Beehive-IM")
 	t.Setenv("BEEHIVE_BLOG_FOO_BAR", "from-env")
 
 	if got, want := viper.GetString("foo.bar"), "from-env"; got != want {
@@ -66,7 +66,7 @@ func TestAddConfigFlagSingleSegmentBasename(t *testing.T) {
 	t.Cleanup(viper.Reset)
 
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
-AddConfigFlag(fs, "app")
+	AddConfigFlag(fs, "app")
 	t.Setenv("APP_X", "y")
 
 	if got, want := viper.GetString("x"), "y"; got != want {

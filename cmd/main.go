@@ -8,7 +8,7 @@ import (
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app"
 
-	// _ "github.com/HappyLadySauce/Beehive-IM/api/swagger/docs" // Register embedded Swagger spec for gin-swagger UI.
+	_ "github.com/HappyLadySauce/Beehive-IM/api/swagger/docs" // Register embedded Swagger spec for gin-swagger UI.
 )
 
 // @title       Beehive Blog HTTP API
