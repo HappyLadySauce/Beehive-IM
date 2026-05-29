@@ -17,7 +17,7 @@ echo "swag: output dir = api/swagger/docs"
 
 # -g main.go with -d ./cmd matches swag's expected layout (avoids cmd/cmd/main.go resolution bugs).
 # 使用 -g main.go 与 -d ./cmd 符合 swag 预期布局（避免出现 cmd/cmd/main.go 解析错误）。
-go run github.com/swaggo/swag/cmd/swag@latest init \
+go run github.com/swaggo/swag/cmd/swag@v1.8.12 init \
   -g main.go \
   -d ./cmd \
   -o api/swagger/docs \
