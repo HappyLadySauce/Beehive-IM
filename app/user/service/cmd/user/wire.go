@@ -6,11 +6,11 @@
 package main
 
 import (
-	"Beehive-IM/internal/biz"
-	"Beehive-IM/internal/conf"
-	"Beehive-IM/internal/data"
-	"Beehive-IM/internal/server"
-	"Beehive-IM/internal/service"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/biz"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/conf"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/data"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/server"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/service"
 
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/log"

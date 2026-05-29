@@ -1,7 +1,7 @@
 package data
 
 import (
-	"Beehive-IM/internal/conf"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/conf"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/google/wire"

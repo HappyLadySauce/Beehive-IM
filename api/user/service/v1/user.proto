@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package user.service.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+
+option go_package = "api/user/service/v1;v1";
+
+// User service provides account and profile APIs for Beehive-IM.
+// User 服务提供 Beehive-IM 的账号与资料接口。
+service User {
+  // Ping health check.
+  // 健康检查。
+  rpc Ping (google.protobuf.Empty) returns (PingReply) {
+    option (google.api.http) = {
+      get: "/v1/user/ping"
+    };
+  }
+
+  // GetUser returns a user profile by ID.
+  // 根据用户 ID 获取资料。
+  rpc GetUser (GetUserRequest) returns (GetUserReply) {
+    option (google.api.http) = {
+      get: "/v1/user/{id}"
+    };
+  }
+}
+
+message PingReply {
+  string message = 1;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message GetUserReply {
+  UserInfo user = 1;
+}
+
+message UserInfo {
+  string id = 1;
+  string username = 2;
+  string nickname = 3;
+  string avatar = 4;
+}

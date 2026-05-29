@@ -1,9 +1,9 @@
 package server
 
 import (
-	v1 "Beehive-IM/api/helloworld/v1"
-	"Beehive-IM/internal/conf"
-	"Beehive-IM/internal/service"
+	v1 "github.com/HappyLadySauce/Beehive-IM/api/user/v1"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/conf"
+	"github.com/HappyLadySauce/Beehive-IM/app/user/service/internal/service"
 
 	"github.com/go-kratos/kratos/v2/log"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
