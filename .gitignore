@@ -1,0 +1,14 @@
+.vscode/
+.claude/
+.cursor/
+.trae/
+.codex/
+.plans/
+
+.gocache
+.tmp
+logs/
+data/
+configs/
+
+*.exe
