@@ -27,12 +27,9 @@ func Init(svcCtx *svc.ServiceContext) error {
 
 	// Register routes under /users with JWT authentication middleware.
 	// 在 /users 路径下注册路由，并使用 JWT 认证中间件。
-	router.Register("/users", func(r router.Router) {
-		r.Use(middleware.JWTAuth(svcCtx.Config.JWT.SecretKey))
-		r.GET("/", u.ListUsers)
-		r.GET("/:id", u.GetUser)
-		r.POST("/", u.CreateUser)
-		r.PUT("/:id", u.UpdateUser)
-		r.DELETE("/:id", u.DeleteUser)
-	})
+	users := router.V1().Group("/users")
+
+	users.POST("/register", u.RegisterUser())
+
+	users.Use(middleware.AuthMiddleware(svcCtx))
 }

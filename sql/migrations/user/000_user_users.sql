@@ -7,7 +7,7 @@ CREATE TABLE users (
     email VARCHAR(255) NOT NULL UNIQUE,        -- 邮箱，唯一且非空
     password_hash VARCHAR(255) NOT NULL,       -- 存储加密后的密码
     status VARCHAR(20) NOT NULL DEFAULT 'active', -- 用户状态（active, inactive, banned）
-    last_login TIMESTAMPTZ,                    -- 上次登录时间（带时区）
+    last_login_at TIMESTAMPTZ,                 -- 上次登录时间（带时区）
     created_at TIMESTAMPTZ DEFAULT NOW(),      -- 创建时间
     updated_at TIMESTAMPTZ DEFAULT NOW()       -- 更新时间
     deleted_at TIMESTAMPTZ                     -- 删除时间（软删除）

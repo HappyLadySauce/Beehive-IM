@@ -98,6 +98,10 @@ func serve(opts *options.Options) {
 // Initialize HTTP route handlers after the service context is ready.
 // 在服务上下文就绪后初始化 HTTP 路由处理器。
 func routesInit(ctx context.Context, sc *svc.ServiceContext) error {
+	// Initialize route middlewares with service context.
+	
+
+
 	// Initialize route handlers with the service context.
 	return nil
 }
