@@ -17,9 +17,11 @@ type LoginRequest struct {
 	Platform string `json:"platform" binding:"required"`
 }
 
+// AuthResponse returns access and refresh credentials only; session/expiry live in the JWT.
+// AuthResponse 仅返回访问与刷新凭证；会话与过期时间由 JWT 承载。
 type AuthResponse struct {
-	Token        string    `json:"token"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	SessionID    string    `json:"session_id,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
+	Token        string `json:"token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	SessionID    string `json:"session_id"`
+	ExpiresAt    time.Time `json:"expires_at"`
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func TestRegisterCreatesUserStoresSessionAndReturnsAuthResponse(t *testing.T) {
@@ -36,24 +37,23 @@ func TestRegisterCreatesUserStoresSessionAndReturnsAuthResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	if resp.Token == "" || resp.SessionID == "" || resp.ExpiresAt.IsZero() {
+	if resp.Token == "" || resp.RefreshToken == "" {
 		t.Fatalf("Register() returned incomplete auth response: %+v", resp)
-	}
-
-	storedVersion, err := redisServer.Get(cache.SessionPrefix + resp.SessionID)
-	if err != nil {
-		t.Fatalf("session version was not stored in redis: %v", err)
-	}
-	if storedVersion == "" {
-		t.Fatal("stored session version is empty")
 	}
 
 	claims, err := jwt.ParseToken(resp.Token, service.Config.JWT.Secret, service.Config.JWT.Issuer)
 	if err != nil {
 		t.Fatalf("ParseToken() error = %v", err)
 	}
-	if claims.UserID != "1" || claims.Username != "alice" || claims.SessionID != resp.SessionID || claims.DeviceID != "device-1" || claims.Platform != "web" || claims.Version != storedVersion {
-		t.Fatalf("unexpected claims: %+v, storedVersion=%q response=%+v", claims, storedVersion, resp)
+	if !redisServer.Exists(cache.SessionIDPrefix + claims.SessionID) {
+		t.Fatal("session was not stored in redis")
+	}
+	parsed, err := session.ParseSessionID(claims.SessionID)
+	if err != nil {
+		t.Fatalf("ParseSessionID() error = %v", err)
+	}
+	if parsed.UserID != "1" || parsed.Username != "alice" || parsed.DeviceID != "device-1" || parsed.Platform != "web" {
+		t.Fatalf("unexpected session claims: %+v", parsed)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations were not met: %v", err)

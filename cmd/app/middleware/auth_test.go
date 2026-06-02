@@ -16,13 +16,15 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func TestAuthMiddlewareAcceptsLowercaseBearerPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svcCtx, redisServer := newAuthMiddlewareTestContext(t)
-	redisServer.Set(cache.SessionPrefix+"session-1", "version-1")
-	token := newAuthTestToken(t, svcCtx)
+	sessionID := mustTestSessionID(t)
+	redisServer.Set(cache.SessionIDPrefix+sessionID, "refresh-hash")
+	token := newAuthTestToken(t, svcCtx, sessionID)
 
 	router := gin.New()
 	router.GET("/protected", AuthMiddleware(svcCtx), func(c *gin.Context) {
@@ -37,7 +39,7 @@ func TestAuthMiddlewareAcceptsLowercaseBearerPrefix(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %q, want 200", resp.Code, resp.Body.String())
 	}
-	if got, want := resp.Body.String(), "1:alice:session-1:device-1:web"; got != want {
+	if got, want := resp.Body.String(), "1:alice:"+sessionID+":device-1:web"; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
 	}
 }
@@ -45,7 +47,8 @@ func TestAuthMiddlewareAcceptsLowercaseBearerPrefix(t *testing.T) {
 func TestAuthMiddlewareTreatsMissingSessionAsRevoked(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svcCtx, _ := newAuthMiddlewareTestContext(t)
-	token := newAuthTestToken(t, svcCtx)
+	sessionID := mustTestSessionID(t)
+	token := newAuthTestToken(t, svcCtx, sessionID)
 
 	router := gin.New()
 	router.GET("/protected", AuthMiddleware(svcCtx), func(c *gin.Context) {
@@ -60,31 +63,7 @@ func TestAuthMiddlewareTreatsMissingSessionAsRevoked(t *testing.T) {
 	if resp.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d body = %q, want 401", resp.Code, resp.Body.String())
 	}
-	if got, want := resp.Body.String(), `{"error":"token has been revoked"}`; got != want {
-		t.Fatalf("body = %q, want %q", got, want)
-	}
-}
-
-func TestAuthMiddlewareRejectsSessionVersionMismatch(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	svcCtx, redisServer := newAuthMiddlewareTestContext(t)
-	redisServer.Set(cache.SessionPrefix+"session-1", "version-2")
-	token := newAuthTestToken(t, svcCtx)
-
-	router := gin.New()
-	router.GET("/protected", AuthMiddleware(svcCtx), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d body = %q, want 401", resp.Code, resp.Body.String())
-	}
-	if got, want := resp.Body.String(), `{"error":"token version mismatch, please login again"}`; got != want {
+	if got, want := resp.Body.String(), `{"error":"session expired or revoked"}`; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
 	}
 }
@@ -92,9 +71,10 @@ func TestAuthMiddlewareRejectsSessionVersionMismatch(t *testing.T) {
 func TestAuthMiddlewareRejectsTokenAfterCurrentSessionDeleted(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svcCtx, redisServer := newAuthMiddlewareTestContext(t)
-	redisServer.Set(cache.SessionPrefix+"session-1", "version-1")
-	token := newAuthTestToken(t, svcCtx)
-	redisServer.Del(cache.SessionPrefix + "session-1")
+	sessionID := mustTestSessionID(t)
+	redisServer.Set(cache.SessionIDPrefix+sessionID, "refresh-hash")
+	token := newAuthTestToken(t, svcCtx, sessionID)
+	redisServer.Del(cache.SessionIDPrefix + sessionID)
 
 	router := gin.New()
 	router.GET("/protected", AuthMiddleware(svcCtx), func(c *gin.Context) {
@@ -152,16 +132,25 @@ func newAuthMiddlewareTestContext(t *testing.T) (*svc.ServiceContext, *miniredis
 	}, redisServer
 }
 
-func newAuthTestToken(t *testing.T, svcCtx *svc.ServiceContext) string {
+func mustTestSessionID(t *testing.T) string {
+	t.Helper()
+	id, err := session.GenerateSessionID(session.SessionClaims{
+		UserID:   "1",
+		Username: "alice",
+		DeviceID: "device-1",
+		Platform: "web",
+	})
+	if err != nil {
+		t.Fatalf("GenerateSessionID() error = %v", err)
+	}
+	return id
+}
+
+func newAuthTestToken(t *testing.T, svcCtx *svc.ServiceContext, sessionID string) string {
 	t.Helper()
 
 	token, err := jwt.GenerateToken(
-		"1",
-		"alice",
-		"session-1",
-		"device-1",
-		"web",
-		"version-1",
+		sessionID,
 		svcCtx.Config.JWT.Issuer,
 		svcCtx.Config.JWT.Secret,
 		jwtv5.NewNumericDate(time.Now().Add(time.Hour)),

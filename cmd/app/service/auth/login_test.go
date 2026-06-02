@@ -17,6 +17,7 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/passwd"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func TestLoginWithCorrectPasswordCreatesSession(t *testing.T) {
@@ -37,30 +38,32 @@ func TestLoginWithCorrectPasswordCreatesSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Login() error = %v", err)
 	}
-	if resp.Token == "" || resp.SessionID == "" || resp.ExpiresAt.IsZero() {
+	if resp.Token == "" || resp.RefreshToken == "" {
 		t.Fatalf("Login() returned incomplete auth response: %+v", resp)
-	}
-
-	storedVersion, err := redisServer.Get(cache.SessionPrefix + resp.SessionID)
-	if err != nil {
-		t.Fatalf("session version was not stored in redis: %v", err)
-	}
-	if resp.RefreshToken == "" {
-		t.Fatal("Login() returned empty refresh token")
 	}
 	if _, err := jwt.ParseToken(resp.RefreshToken, service.Config.JWT.Secret, service.Config.JWT.Issuer); err == nil {
 		t.Fatal("refresh token must not be a valid access JWT")
-	}
-	refreshHash := jwt.HashRefreshToken(resp.RefreshToken)
-	if storedSessionID, err := redisServer.Get(cache.RefreshPrefix + refreshHash); err != nil || storedSessionID != resp.SessionID {
-		t.Fatalf("refresh mapping = %q err = %v, want session %q", storedSessionID, err, resp.SessionID)
 	}
 	claims, err := jwt.ParseToken(resp.Token, service.Config.JWT.Secret, service.Config.JWT.Issuer)
 	if err != nil {
 		t.Fatalf("ParseToken() error = %v", err)
 	}
-	if claims.UserID != "1" || claims.Username != "alice" || claims.SessionID != resp.SessionID || claims.DeviceID != "device-1" || claims.Platform != "web" || claims.Version != storedVersion {
-		t.Fatalf("unexpected claims: %+v, storedVersion=%q response=%+v", claims, storedVersion, resp)
+	if !redisServer.Exists(cache.SessionIDPrefix + claims.SessionID) {
+		t.Fatal("session was not stored in redis")
+	}
+	refreshHash := jwt.HashRefreshToken(resp.RefreshToken)
+	if storedHash, err := redisServer.Get(cache.SessionIDPrefix + claims.SessionID); err != nil || storedHash != refreshHash {
+		t.Fatalf("session value = %q err = %v, want refresh hash %q", storedHash, err, refreshHash)
+	}
+	if err := service.ValidateRefreshToken(context.Background(), claims.SessionID, resp.RefreshToken); err != nil {
+		t.Fatalf("ValidateRefreshToken() error = %v", err)
+	}
+	parsed, err := session.ParseSessionID(claims.SessionID)
+	if err != nil {
+		t.Fatalf("ParseSessionID() error = %v", err)
+	}
+	if parsed.UserID != "1" || parsed.Username != "alice" || parsed.DeviceID != "device-1" || parsed.Platform != "web" {
+		t.Fatalf("unexpected session claims: %+v", parsed)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations were not met: %v", err)
@@ -96,23 +99,31 @@ func TestLoginCreatesIndependentSessionsForSameUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Login() error = %v", err)
 	}
-	if first.SessionID == second.SessionID {
-		t.Fatalf("session IDs are equal: %q", first.SessionID)
+	firstClaims, err := jwt.ParseToken(first.Token, service.Config.JWT.Secret, service.Config.JWT.Issuer)
+	if err != nil {
+		t.Fatalf("ParseToken(first) error = %v", err)
+	}
+	secondClaims, err := jwt.ParseToken(second.Token, service.Config.JWT.Secret, service.Config.JWT.Issuer)
+	if err != nil {
+		t.Fatalf("ParseToken(second) error = %v", err)
+	}
+	if firstClaims.SessionID == secondClaims.SessionID {
+		t.Fatalf("session IDs are equal: %q", firstClaims.SessionID)
 	}
 
-	if _, err := redisServer.Get(cache.SessionPrefix + first.SessionID); err != nil {
-		t.Fatalf("first session missing from redis: %v", err)
+	if !redisServer.Exists(cache.SessionIDPrefix + firstClaims.SessionID) {
+		t.Fatalf("first session missing from redis")
 	}
-	if _, err := redisServer.Get(cache.SessionPrefix + second.SessionID); err != nil {
-		t.Fatalf("second session missing from redis: %v", err)
+	if !redisServer.Exists(cache.SessionIDPrefix + secondClaims.SessionID) {
+		t.Fatalf("second session missing from redis")
 	}
-	if err := service.DeleteSession(context.Background(), first.SessionID); err != nil {
+	if err := service.DeleteSession(context.Background(), firstClaims.SessionID); err != nil {
 		t.Fatalf("DeleteSession() error = %v", err)
 	}
-	if redisServer.Exists(cache.SessionPrefix + first.SessionID) {
+	if redisServer.Exists(cache.SessionIDPrefix + firstClaims.SessionID) {
 		t.Fatal("first session still exists after delete")
 	}
-	if !redisServer.Exists(cache.SessionPrefix + second.SessionID) {
+	if !redisServer.Exists(cache.SessionIDPrefix + secondClaims.SessionID) {
 		t.Fatal("second session was deleted with first session")
 	}
 }

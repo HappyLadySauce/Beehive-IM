@@ -2,16 +2,15 @@ package middleware
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/auth"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
@@ -23,8 +22,6 @@ func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 			return
 		}
 
-		// Intercept request headers
-		// 请求头拦截
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -33,8 +30,6 @@ func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 			return
 		}
 
-		// Support both Bearer token and token without Bearer prefix
-		// 支持 Bearer token 和未带 Bearer 的 token
 		tokenString := authHeader
 		if len(authHeader) > len("Bearer ") && strings.EqualFold(authHeader[:len("Bearer ")], "Bearer ") {
 			tokenString = authHeader[len("Bearer "):]
@@ -48,47 +43,38 @@ func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 			return
 		}
 
+		sessionClaims, err := session.ParseSessionID(claims.SessionID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid session",
+			})
+			return
+		}
+
 		as := auth.NewAuthService(s)
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), s.Config.Cache.CommandTimeout)
 		defer cancel()
 
-		currentVersion, err := as.GetSessionVersion(ctx, claims.SessionID)
+		active, err := as.SessionIsActive(ctx, claims.SessionID)
 		if err != nil {
-			if errors.Is(err, redis.Nil) {
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-					"error": "token has been revoked",
-				})
-				return
-			}
-
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "failed to get user token version",
+				"error": "failed to verify session",
+			})
+			return
+		}
+		if !active {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "session expired or revoked",
 			})
 			return
 		}
 
-		if currentVersion == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token has been revoked",
-			})
-			return
-		}
-
-		// Token version mismatch indicates the token has been revoked or is outdated.
-		// 令牌版本不匹配表示令牌已被撤销或过时。
-		if claims.Version != currentVersion {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "token version mismatch, please login again",
-			})
-			return
-		}
-
-		c.Set("userID", claims.UserID)
-		c.Set("username", claims.Username)
+		c.Set("userID", sessionClaims.UserID)
+		c.Set("username", sessionClaims.Username)
 		c.Set("sessionID", claims.SessionID)
-		c.Set("deviceID", claims.DeviceID)
-		c.Set("platform", claims.Platform)
+		c.Set("deviceID", sessionClaims.DeviceID)
+		c.Set("platform", sessionClaims.Platform)
 		c.Next()
 	}
 }
