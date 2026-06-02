@@ -17,7 +17,6 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
-	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func TestRegisterCreatesUserStoresSessionAndReturnsAuthResponse(t *testing.T) {
@@ -48,12 +47,8 @@ func TestRegisterCreatesUserStoresSessionAndReturnsAuthResponse(t *testing.T) {
 	if !redisServer.Exists(cache.SessionIDPrefix + claims.SessionID) {
 		t.Fatal("session was not stored in redis")
 	}
-	parsed, err := session.ParseSessionID(claims.SessionID)
-	if err != nil {
-		t.Fatalf("ParseSessionID() error = %v", err)
-	}
-	if parsed.UserID != "1" || parsed.Username != "alice" || parsed.DeviceID != "device-1" || parsed.Platform != "web" {
-		t.Fatalf("unexpected session claims: %+v", parsed)
+	if claims.UserID != "1" || claims.Username != "alice" || claims.DeviceID != "device-1" || claims.Platform != "web" {
+		t.Fatalf("unexpected access token claims: %+v", claims)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations were not met: %v", err)
@@ -124,7 +119,7 @@ func newRegisterTestService(t *testing.T) (*UserService, *miniredis.Miniredis, s
 			},
 			JWT: &options.JWTOptions{
 				Issuer:     "Beehive-IM",
-				Secret:    "12345678901234567890123456789012",
+				Secret:     "12345678901234567890123456789012",
 				AccessTTL:  time.Hour,
 				RefreshTTL: 2 * time.Hour,
 			},

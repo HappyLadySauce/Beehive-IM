@@ -8,7 +8,7 @@ import (
 	authsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/auth"
 )
 
-func (a *AuthController) Logout() gin.HandlerFunc {
+func (c *AuthController) Logout() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		sessionID := ctx.GetString("sessionID")
 		if sessionID == "" {
@@ -16,7 +16,7 @@ func (a *AuthController) Logout() gin.HandlerFunc {
 			return
 		}
 
-		service := authsvc.NewAuthService(a.svc)
+		service := authsvc.NewAuthService(c.svc)
 		if err := service.DeleteSession(ctx.Request.Context(), sessionID); err != nil {
 			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout"})
 			return

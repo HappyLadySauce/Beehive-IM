@@ -6,11 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/auth"
+	authsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/auth"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/types/api/v1"
 )
 
-func (a *AuthController) Login() gin.HandlerFunc {
+func (c *AuthController) Login() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		var req v1.LoginRequest
 		if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -18,14 +18,10 @@ func (a *AuthController) Login() gin.HandlerFunc {
 			return
 		}
 
-		service := &auth.AuthService{
-			DB:     a.svc.DB,
-			Cache:  a.svc.Cache,
-			Config: a.svc.Config,
-		}
+		service := authsvc.NewAuthService(c.svc)
 		resp, err := service.Login(ctx.Request.Context(), req)
 		if err != nil {
-			if errors.Is(err, auth.ErrInvalidCredentials) {
+			if errors.Is(err, authsvc.ErrInvalidCredentials) {
 				ctx.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 				return
 			}

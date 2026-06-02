@@ -9,7 +9,13 @@ import (
 
 func TestTokenIssuerMustMatchExpectedIssuer(t *testing.T) {
 	token, err := GenerateToken(
-		"session-1",
+		TokenClaims{
+			SessionID: "session-1",
+			UserID:    "1",
+			Username:  "alice",
+			DeviceID:  "device-1",
+			Platform:  "web",
+		},
 		"Beehive-IM",
 		"12345678901234567890123456789012",
 		jwtv5.NewNumericDate(time.Now().Add(time.Hour)),
@@ -31,9 +37,15 @@ func TestTokenIssuerMustMatchExpectedIssuer(t *testing.T) {
 	}
 }
 
-func TestTokenContainsSessionID(t *testing.T) {
+func TestTokenContainsSessionAndUserClaims(t *testing.T) {
 	token, err := GenerateToken(
-		"session-1",
+		TokenClaims{
+			SessionID: "session-1",
+			UserID:    "1",
+			Username:  "alice",
+			DeviceID:  "device-1",
+			Platform:  "web",
+		},
 		"Beehive-IM",
 		"12345678901234567890123456789012",
 		jwtv5.NewNumericDate(time.Now().Add(time.Hour)),
@@ -49,11 +61,16 @@ func TestTokenContainsSessionID(t *testing.T) {
 	if claims.SessionID != "session-1" {
 		t.Fatalf("claims.SessionID = %q, want session-1", claims.SessionID)
 	}
+	if claims.UserID != "1" || claims.Username != "alice" || claims.DeviceID != "device-1" || claims.Platform != "web" {
+		t.Fatalf("unexpected token claims: %+v", claims)
+	}
 }
 
 func TestParseTokenRejectsNonHS256Algorithm(t *testing.T) {
 	claims := Claims{
-		SessionID: "session-1",
+		TokenClaims: TokenClaims{
+			SessionID: "session-1",
+		},
 		RegisteredClaims: jwtv5.RegisteredClaims{
 			ExpiresAt: jwtv5.NewNumericDate(time.Now().Add(time.Hour)),
 			Issuer:    "Beehive-IM",
@@ -72,7 +89,13 @@ func TestParseTokenRejectsNonHS256Algorithm(t *testing.T) {
 
 func TestParseTokenRejectsExpiredToken(t *testing.T) {
 	token, err := GenerateToken(
-		"session-1",
+		TokenClaims{
+			SessionID: "session-1",
+			UserID:    "1",
+			Username:  "alice",
+			DeviceID:  "device-1",
+			Platform:  "web",
+		},
 		"Beehive-IM",
 		"12345678901234567890123456789012",
 		jwtv5.NewNumericDate(time.Now().Add(-time.Hour)),

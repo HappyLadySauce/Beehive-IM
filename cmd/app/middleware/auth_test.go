@@ -12,7 +12,6 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
-	"github.com/HappyLadySauce/Beehive-IM/pkg/common/cache"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
@@ -21,9 +20,8 @@ import (
 
 func TestAuthMiddlewareAcceptsLowercaseBearerPrefix(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	svcCtx, redisServer := newAuthMiddlewareTestContext(t)
+	svcCtx, _ := newAuthMiddlewareTestContext(t)
 	sessionID := mustTestSessionID(t)
-	redisServer.Set(cache.SessionIDPrefix+sessionID, "refresh-hash")
 	token := newAuthTestToken(t, svcCtx, sessionID)
 
 	router := gin.New()
@@ -44,7 +42,7 @@ func TestAuthMiddlewareAcceptsLowercaseBearerPrefix(t *testing.T) {
 	}
 }
 
-func TestAuthMiddlewareTreatsMissingSessionAsRevoked(t *testing.T) {
+func TestAuthMiddlewareDoesNotRequireRedisSessionForAccessToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svcCtx, _ := newAuthMiddlewareTestContext(t)
 	sessionID := mustTestSessionID(t)
@@ -60,34 +58,8 @@ func TestAuthMiddlewareTreatsMissingSessionAsRevoked(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d body = %q, want 401", resp.Code, resp.Body.String())
-	}
-	if got, want := resp.Body.String(), `{"error":"session expired or revoked"}`; got != want {
-		t.Fatalf("body = %q, want %q", got, want)
-	}
-}
-
-func TestAuthMiddlewareRejectsTokenAfterCurrentSessionDeleted(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	svcCtx, redisServer := newAuthMiddlewareTestContext(t)
-	sessionID := mustTestSessionID(t)
-	redisServer.Set(cache.SessionIDPrefix+sessionID, "refresh-hash")
-	token := newAuthTestToken(t, svcCtx, sessionID)
-	redisServer.Del(cache.SessionIDPrefix + sessionID)
-
-	router := gin.New()
-	router.GET("/protected", AuthMiddleware(svcCtx), func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/protected", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	resp := httptest.NewRecorder()
-	router.ServeHTTP(resp, req)
-
-	if resp.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d body = %q, want 401", resp.Code, resp.Body.String())
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q, want 200", resp.Code, resp.Body.String())
 	}
 }
 
@@ -134,12 +106,7 @@ func newAuthMiddlewareTestContext(t *testing.T) (*svc.ServiceContext, *miniredis
 
 func mustTestSessionID(t *testing.T) string {
 	t.Helper()
-	id, err := session.GenerateSessionID(session.SessionClaims{
-		UserID:   "1",
-		Username: "alice",
-		DeviceID: "device-1",
-		Platform: "web",
-	})
+	id, err := session.GenerateSessionID()
 	if err != nil {
 		t.Fatalf("GenerateSessionID() error = %v", err)
 	}
@@ -150,7 +117,13 @@ func newAuthTestToken(t *testing.T, svcCtx *svc.ServiceContext, sessionID string
 	t.Helper()
 
 	token, err := jwt.GenerateToken(
-		sessionID,
+		jwt.TokenClaims{
+			SessionID: sessionID,
+			UserID:    "1",
+			Username:  "alice",
+			DeviceID:  "device-1",
+			Platform:  "web",
+		},
 		svcCtx.Config.JWT.Issuer,
 		svcCtx.Config.JWT.Secret,
 		jwtv5.NewNumericDate(time.Now().Add(time.Hour)),

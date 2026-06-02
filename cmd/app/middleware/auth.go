@@ -1,21 +1,18 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/auth"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
-	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if s == nil || s.Config == nil || s.Config.JWT == nil || s.Config.Cache == nil || s.Cache == nil || s.Config.Cache.CommandTimeout <= 0 {
+		if s == nil || s.Config == nil || s.Config.JWT == nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
 				"error": "auth service is not fully initialized",
 			})
@@ -43,38 +40,18 @@ func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 			return
 		}
 
-		sessionClaims, err := session.ParseSessionID(claims.SessionID)
-		if err != nil {
+		if claims.SessionID == "" || claims.UserID == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 				"error": "invalid session",
 			})
 			return
 		}
 
-		as := auth.NewAuthService(s)
-
-		ctx, cancel := context.WithTimeout(c.Request.Context(), s.Config.Cache.CommandTimeout)
-		defer cancel()
-
-		active, err := as.SessionIsActive(ctx, claims.SessionID)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "failed to verify session",
-			})
-			return
-		}
-		if !active {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "session expired or revoked",
-			})
-			return
-		}
-
-		c.Set("userID", sessionClaims.UserID)
-		c.Set("username", sessionClaims.Username)
+		c.Set("userID", claims.UserID)
+		c.Set("username", claims.Username)
 		c.Set("sessionID", claims.SessionID)
-		c.Set("deviceID", sessionClaims.DeviceID)
-		c.Set("platform", sessionClaims.Platform)
+		c.Set("deviceID", claims.DeviceID)
+		c.Set("platform", claims.Platform)
 		c.Next()
 	}
 }

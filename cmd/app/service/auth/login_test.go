@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/jwt"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/passwd"
-	"github.com/HappyLadySauce/Beehive-IM/pkg/utils/session"
 )
 
 func TestLoginWithCorrectPasswordCreatesSession(t *testing.T) {
@@ -51,19 +51,25 @@ func TestLoginWithCorrectPasswordCreatesSession(t *testing.T) {
 	if !redisServer.Exists(cache.SessionIDPrefix + claims.SessionID) {
 		t.Fatal("session was not stored in redis")
 	}
-	refreshHash := jwt.HashRefreshToken(resp.RefreshToken)
-	if storedHash, err := redisServer.Get(cache.SessionIDPrefix + claims.SessionID); err != nil || storedHash != refreshHash {
-		t.Fatalf("session value = %q err = %v, want refresh hash %q", storedHash, err, refreshHash)
+	if claims.UserID != "1" || claims.Username != "alice" || claims.DeviceID != "device-1" || claims.Platform != "web" {
+		t.Fatalf("unexpected access token claims: %+v", claims)
+	}
+	rawSession, err := redisServer.Get(cache.SessionIDPrefix + claims.SessionID)
+	if err != nil {
+		t.Fatalf("session value missing: %v", err)
+	}
+	var stored SessionRecord
+	if err := json.Unmarshal([]byte(rawSession), &stored); err != nil {
+		t.Fatalf("session value is not JSON: %q err = %v", rawSession, err)
+	}
+	if stored.RefreshHash != jwt.HashRefreshToken(resp.RefreshToken) {
+		t.Fatalf("stored refresh hash = %q, want %q", stored.RefreshHash, jwt.HashRefreshToken(resp.RefreshToken))
+	}
+	if stored.UserID != "1" || stored.Username != "alice" || stored.DeviceID != "device-1" || stored.Platform != "web" {
+		t.Fatalf("unexpected stored session: %+v", stored)
 	}
 	if err := service.ValidateRefreshToken(context.Background(), claims.SessionID, resp.RefreshToken); err != nil {
 		t.Fatalf("ValidateRefreshToken() error = %v", err)
-	}
-	parsed, err := session.ParseSessionID(claims.SessionID)
-	if err != nil {
-		t.Fatalf("ParseSessionID() error = %v", err)
-	}
-	if parsed.UserID != "1" || parsed.Username != "alice" || parsed.DeviceID != "device-1" || parsed.Platform != "web" {
-		t.Fatalf("unexpected session claims: %+v", parsed)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("sql expectations were not met: %v", err)
@@ -125,6 +131,99 @@ func TestLoginCreatesIndependentSessionsForSameUser(t *testing.T) {
 	}
 	if !redisServer.Exists(cache.SessionIDPrefix + secondClaims.SessionID) {
 		t.Fatal("second session was deleted with first session")
+	}
+}
+
+func TestRefreshSessionTokenRotatesRefreshToken(t *testing.T) {
+	service, redisServer, mock := newLoginTestService(t)
+	hash, err := passwd.HashPassword("secret123")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	mock.ExpectQuery(`SELECT .* FROM "users" WHERE username = .* LIMIT .*`).
+		WillReturnRows(loginUserRows().AddRow(1, "alice", "alice@example.com", hash, "active", nil, time.Now(), time.Now(), nil))
+
+	loginResp, err := service.Login(context.Background(), v1.LoginRequest{
+		Account:  "alice",
+		Password: "secret123",
+		DeviceID: "device-1",
+		Platform: "web",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	refreshResp, err := service.RefreshSessionToken(context.Background(), v1.RefreshRequest{
+		SessionID:    loginResp.SessionID,
+		RefreshToken: loginResp.RefreshToken,
+	})
+	if err != nil {
+		t.Fatalf("RefreshSessionToken() error = %v", err)
+	}
+	if refreshResp.Token == "" || refreshResp.RefreshToken == "" || refreshResp.SessionID != loginResp.SessionID {
+		t.Fatalf("RefreshSessionToken() returned incomplete response: %+v", refreshResp)
+	}
+	if refreshResp.RefreshToken == loginResp.RefreshToken {
+		t.Fatal("refresh token was not rotated")
+	}
+	if err := service.ValidateRefreshToken(context.Background(), loginResp.SessionID, loginResp.RefreshToken); err == nil {
+		t.Fatal("old refresh token is still valid after rotation")
+	}
+	if err := service.ValidateRefreshToken(context.Background(), loginResp.SessionID, refreshResp.RefreshToken); err != nil {
+		t.Fatalf("new refresh token is invalid: %v", err)
+	}
+	rawSession, err := redisServer.Get(cache.SessionIDPrefix + loginResp.SessionID)
+	if err != nil {
+		t.Fatalf("session value missing after refresh: %v", err)
+	}
+	var stored SessionRecord
+	if err := json.Unmarshal([]byte(rawSession), &stored); err != nil {
+		t.Fatalf("session value is not JSON after refresh: %q err = %v", rawSession, err)
+	}
+	if stored.RefreshHash != jwt.HashRefreshToken(refreshResp.RefreshToken) {
+		t.Fatalf("stored refresh hash = %q, want %q", stored.RefreshHash, jwt.HashRefreshToken(refreshResp.RefreshToken))
+	}
+	claims, err := jwt.ParseToken(refreshResp.Token, service.Config.JWT.Secret, service.Config.JWT.Issuer)
+	if err != nil {
+		t.Fatalf("ParseToken(refreshResp.Token) error = %v", err)
+	}
+	if claims.UserID != "1" || claims.Username != "alice" || claims.DeviceID != "device-1" || claims.Platform != "web" {
+		t.Fatalf("unexpected refreshed access claims: %+v", claims)
+	}
+}
+
+func TestRefreshSessionTokenRejectsMissingOrWrongRefreshToken(t *testing.T) {
+	service, redisServer, mock := newLoginTestService(t)
+	hash, err := passwd.HashPassword("secret123")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	mock.ExpectQuery(`SELECT .* FROM "users" WHERE username = .* LIMIT .*`).
+		WillReturnRows(loginUserRows().AddRow(1, "alice", "alice@example.com", hash, "active", nil, time.Now(), time.Now(), nil))
+
+	loginResp, err := service.Login(context.Background(), v1.LoginRequest{
+		Account:  "alice",
+		Password: "secret123",
+		DeviceID: "device-1",
+		Platform: "web",
+	})
+	if err != nil {
+		t.Fatalf("Login() error = %v", err)
+	}
+
+	if _, err := service.RefreshSessionToken(context.Background(), v1.RefreshRequest{
+		SessionID:    loginResp.SessionID,
+		RefreshToken: "wrong-refresh-token",
+	}); err == nil {
+		t.Fatal("RefreshSessionToken() error = nil, want wrong refresh token rejection")
+	}
+
+	redisServer.Del(cache.SessionIDPrefix + loginResp.SessionID)
+	if _, err := service.RefreshSessionToken(context.Background(), v1.RefreshRequest{
+		SessionID:    loginResp.SessionID,
+		RefreshToken: loginResp.RefreshToken,
+	}); err == nil {
+		t.Fatal("RefreshSessionToken() error = nil, want missing session rejection")
 	}
 }
 

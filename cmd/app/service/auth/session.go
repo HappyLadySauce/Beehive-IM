@@ -17,12 +17,7 @@ func (s *AuthService) CreateSessionToken(ctx context.Context, userID, username, 
 		return v1.AuthResponse{}, fmt.Errorf("auth service is not fully initialized")
 	}
 
-	sessionID, err := session.GenerateSessionID(session.SessionClaims{
-		UserID:   userID,
-		Username: username,
-		DeviceID: deviceID,
-		Platform: platform,
-	})
+	sessionID, err := session.GenerateSessionID()
 	if err != nil {
 		return v1.AuthResponse{}, fmt.Errorf("generate session id: %w", err)
 	}
@@ -34,7 +29,13 @@ func (s *AuthService) CreateSessionToken(ctx context.Context, userID, username, 
 
 	expiresAt := time.Now().Add(s.Config.JWT.AccessTTL)
 	token, err := jwt.GenerateToken(
-		sessionID,
+		jwt.TokenClaims{
+			SessionID: sessionID,
+			UserID:    userID,
+			Username:  username,
+			DeviceID:  deviceID,
+			Platform:  platform,
+		},
 		s.Config.JWT.Issuer,
 		s.Config.JWT.Secret,
 		jwtv5.NewNumericDate(expiresAt),
@@ -46,7 +47,12 @@ func (s *AuthService) CreateSessionToken(ctx context.Context, userID, username, 
 	ctx, cancel := context.WithTimeout(ctx, s.Config.Cache.CommandTimeout)
 	defer cancel()
 
-	if err := s.storeSession(ctx, sessionID, refreshToken); err != nil {
+	if err := s.storeSession(ctx, sessionID, refreshToken, SessionRecord{
+		UserID:   userID,
+		Username: username,
+		DeviceID: deviceID,
+		Platform: platform,
+	}); err != nil {
 		return v1.AuthResponse{}, err
 	}
 

@@ -6,24 +6,34 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// Claims is the minimal access-token payload; user/device fields live inside session_id.
-// Claims 为最小访问令牌载荷；用户与设备信息编码在 session_id 中。
-type Claims struct {
+// TokenClaims is the application payload embedded in access JWTs.
+// TokenClaims 是写入访问 JWT 的业务载荷。
+type TokenClaims struct {
 	SessionID string `json:"session_id"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	DeviceID  string `json:"device_id"`
+	Platform  string `json:"platform"`
+}
+
+// Claims is the signed access-token payload.
+// Claims 为签名访问令牌载荷。
+type Claims struct {
+	TokenClaims
 	jwt.RegisteredClaims
 }
 
-// GenerateToken creates a signed HS256 access JWT bound to sessionID.
-// GenerateToken 签发与 sessionID 绑定的 HS256 访问 JWT。
-func GenerateToken(sessionID, issuer, secretKey string, expiresAt *jwt.NumericDate) (string, error) {
+// GenerateToken creates a signed HS256 access JWT bound to the given session and user claims.
+// GenerateToken 签发与会话和用户声明绑定的 HS256 访问 JWT。
+func GenerateToken(tokenClaims TokenClaims, issuer, secretKey string, expiresAt *jwt.NumericDate) (string, error) {
 	claims := Claims{
-		SessionID: sessionID,
+		TokenClaims: tokenClaims,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: expiresAt,
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    issuer,
-			Subject:   sessionID,
+			Subject:   tokenClaims.SessionID,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

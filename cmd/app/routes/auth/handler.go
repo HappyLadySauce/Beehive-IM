@@ -30,6 +30,7 @@ func Init(svcCtx *svc.ServiceContext) error {
 	auth := router.V1().Group("/auth")
 
 	auth.POST("/login", u.Login())
+	auth.POST("/refresh", u.Refresh())
 	auth.POST("/logout", middleware.AuthMiddleware(svcCtx), u.Logout())
 
 	return nil

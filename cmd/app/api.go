@@ -12,6 +12,7 @@ import (
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/options"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/router"
+	authroute "github.com/HappyLadySauce/Beehive-IM/cmd/app/routes/auth"
 	userroute "github.com/HappyLadySauce/Beehive-IM/cmd/app/routes/user"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
@@ -100,5 +101,8 @@ func serve(opts *options.Options) {
 // 在服务上下文就绪后初始化 HTTP 路由处理器。
 func routesInit(ctx context.Context, sc *svc.ServiceContext) error {
 	// Initialize route handlers with the service context.
+	if err := authroute.Init(sc); err != nil {
+		return err
+	}
 	return userroute.Init(sc)
 }
