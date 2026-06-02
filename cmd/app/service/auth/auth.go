@@ -1,44 +1,24 @@
 package auth
 
 import (
-	"context"
-	"time"
-
 	"github.com/redis/go-redis/v9"
+	"gorm.io/gorm"
 
-	"github.com/HappyLadySauce/Beehive-IM/pkg/common/cache"
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 )
 
 type AuthService struct {
+	DB     *gorm.DB
 	Cache  *redis.Client
+	Config *config.Config
 }
 
-func NewAuthService(cache *redis.Client) *AuthService {
+func NewAuthService(s *svc.ServiceContext) *AuthService {
 	return &AuthService{
-		Cache: cache,
+		Cache:  s.Cache,
+		DB:     s.DB,
+		Config: s.Config,
 	}
-}
-
-func (s *AuthService) SetUserTokenVersion(ctx context.Context, userID, version string) error {
-	key := cache.UserTokenVersionPrefix + userID
-
-	return s.Cache.Set(ctx, key, version, time.Duration(time.Hour)).Err()
-}
-
-func (s *AuthService) GetUserTokenVersion(ctx context.Context, userID string) (string, error) {
-	key := cache.UserTokenVersionPrefix + userID
-
-	val, err := s.Cache.Get(ctx, key).Result()
-	if err != nil {
-		return "", err
-	}
-
-	return val, nil
-}
-
-func (s *AuthService) DeleteUserTokenVersion(ctx context.Context, userID string) error {
-	key := cache.UserTokenVersionPrefix + userID
-
-	return s.Cache.Del(ctx, key).Err()
 }
 

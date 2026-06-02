@@ -1,5 +1,7 @@
 package cache
 
 const (
-	UserTokenVersionPrefix = "user:token:version:"
+	SessionPrefix        = "auth:session:"
+	RefreshPrefix        = "auth:refresh:"
+	SessionRefreshPrefix = "auth:session_refresh:"
 )

@@ -48,12 +48,12 @@ func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 			return
 		}
 
-		as := auth.NewAuthService(s.Cache)
+		as := auth.NewAuthService(s)
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), s.Config.Cache.CommandTimeout)
 		defer cancel()
 
-		currentVersion, err := as.GetUserTokenVersion(ctx, claims.UserID)
+		currentVersion, err := as.GetSessionVersion(ctx, claims.SessionID)
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -86,6 +86,9 @@ func AuthMiddleware(s *svc.ServiceContext) gin.HandlerFunc {
 
 		c.Set("userID", claims.UserID)
 		c.Set("username", claims.Username)
+		c.Set("sessionID", claims.SessionID)
+		c.Set("deviceID", claims.DeviceID)
+		c.Set("platform", claims.Platform)
 		c.Next()
 	}
 }

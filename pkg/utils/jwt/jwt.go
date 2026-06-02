@@ -6,38 +6,50 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Claims is the access-token payload; refresh tokens are opaque and not JWTs.
+// Claims 为访问令牌载荷；刷新令牌为不透明串，不是 JWT。
 type Claims struct {
-	UserID               string `json:"user_id"`  // 用户 ID
-	Username             string `json:"username"` // 用户名
-	Version              string `json:"version"`  // 版本号
-	jwt.RegisteredClaims        // 内嵌标准 JWT 声明，如 exp、iat、sub 等
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	SessionID string `json:"session_id"`
+	DeviceID  string `json:"device_id"`
+	Platform  string `json:"platform"`
+	Version   string `json:"ver"`
+	jwt.RegisteredClaims
 }
 
-// GenerateToken creates a JWT token with the given user information and expiration time.
-// GenerateToken 使用给定的用户信息和过期时间生成 JWT 令牌。
-func GenerateToken(userID, username, version, issuer, secretKey string, expiresAt *jwt.NumericDate) (string, error) {
+// GenerateToken creates a signed HS256 access JWT.
+// GenerateToken 签发 HS256 访问 JWT。
+func GenerateToken(
+	userID, username, sessionID, deviceID, platform, version,
+	issuer, secretKey string,
+	expiresAt *jwt.NumericDate,
+) (string, error) {
 	claims := Claims{
-		UserID:   userID,
-		Username: username,
-		Version:  version,
+		UserID:    userID,
+		Username:  username,
+		SessionID: sessionID,
+		DeviceID:  deviceID,
+		Platform:  platform,
+		Version:   version,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: expiresAt,                      // 设置过期时间
-			IssuedAt:  jwt.NewNumericDate(time.Now()), // 设置签发时间
-			NotBefore: jwt.NewNumericDate(time.Now()), // 设置生效时间
-			Issuer:    issuer,                         // 设置签发者
-			Subject:   userID,                         // 设置主题
+			ExpiresAt: expiresAt,
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			Issuer:    issuer,
+			Subject:   userID,
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString([]byte(secretKey))
 }
 
-// ParseToken validates the JWT token and returns the claims if valid.
-// ParseToken 验证 JWT 令牌并返回有效的声明。
+// ParseToken validates the access JWT and returns claims when valid.
+// ParseToken 校验访问 JWT，有效时返回声明。
 func ParseToken(tokenStr, secretKey, issuer string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return []byte(secretKey), nil
-	}, jwt.WithIssuer(issuer))
+	}, jwt.WithIssuer(issuer), jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
 		return nil, err
 	}

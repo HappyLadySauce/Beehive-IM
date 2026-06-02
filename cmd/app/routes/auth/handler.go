@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/middleware"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/router"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
 )
@@ -29,9 +30,7 @@ func Init(svcCtx *svc.ServiceContext) error {
 	auth := router.V1().Group("/auth")
 
 	auth.POST("/login", u.Login())
+	auth.POST("/logout", middleware.AuthMiddleware(svcCtx), u.Logout())
 
 	return nil
 }
-
-
-

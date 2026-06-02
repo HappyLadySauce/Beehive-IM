@@ -19,7 +19,7 @@ func (c *UsersController) RegisterUser() gin.HandlerFunc {
 		}
 
 		userService := user.NewUserService(c.svc)
-		token, err := userService.Register(ctx.Request.Context(), req)
+		resp, err := userService.Register(ctx.Request.Context(), req)
 		if err != nil {
 			if errors.Is(err, user.ErrUserAlreadyExists) {
 				ctx.JSON(http.StatusConflict, gin.H{"error": "username or email already exists"})
@@ -30,6 +30,6 @@ func (c *UsersController) RegisterUser() gin.HandlerFunc {
 			return
 		}
 
-		ctx.JSON(http.StatusOK, gin.H{"token": token})
+		ctx.JSON(http.StatusOK, resp)
 	}
 }
