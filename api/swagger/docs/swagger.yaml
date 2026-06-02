@@ -1,11 +1,228 @@
 basePath: /
+definitions:
+  v1.AuthResponse:
+    properties:
+      expires_at:
+        example: "2026-06-02T12:00:00Z"
+        type: string
+      refresh_token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+      token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+    type: object
+  v1.ErrorResponse:
+    properties:
+      error:
+        example: invalid request body
+        type: string
+    type: object
+  v1.LoginRequest:
+    properties:
+      account:
+        example: alice
+        type: string
+      device_id:
+        example: device-001
+        type: string
+      password:
+        example: secret123
+        type: string
+      platform:
+        example: web
+        type: string
+    required:
+    - account
+    - device_id
+    - password
+    - platform
+    type: object
+  v1.MessageResponse:
+    properties:
+      message:
+        example: logged out
+        type: string
+    type: object
+  v1.RefreshRequest:
+    properties:
+      refresh_token:
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      session_id:
+        example: sess_abc123
+        type: string
+    required:
+    - refresh_token
+    - session_id
+    type: object
+  v1.RegisterRequest:
+    properties:
+      device_id:
+        example: device-001
+        type: string
+      email:
+        example: alice@example.com
+        type: string
+      password:
+        example: secret123
+        maxLength: 100
+        minLength: 6
+        type: string
+      platform:
+        example: web
+        type: string
+      username:
+        example: alice
+        maxLength: 20
+        minLength: 3
+        type: string
+    required:
+    - device_id
+    - email
+    - password
+    - platform
+    - username
+    type: object
 info:
   contact: {}
   description: 'REST API for Beehive Blog (v1). JSON envelope: code (HTTP-style),
     message, data. 中文：Beehive Blog REST API（v1）；响应为 code、message、data 的 JSON 包装。'
   title: Beehive Blog HTTP API
   version: "1.0"
-paths: {}
+paths:
+  /api/v1/auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticate with username or email and password; returns JWT access
+        token, refresh token, and session ID. 中文：使用用户名或邮箱与密码登录，返回 JWT access token、refresh
+        token 与 session ID。
+      parameters:
+      - description: Login credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/v1.LoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/v1.AuthResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "401":
+          description: Invalid credentials
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+      summary: User login
+      tags:
+      - auth
+  /api/v1/auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: Delete the authenticated session; requires a valid Bearer access
+        token. 中文：注销当前会话；需要有效的 Bearer access token。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/v1.MessageResponse'
+        "401":
+          description: Missing or invalid session
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: User logout
+      tags:
+      - auth
+  /api/v1/auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Rotate session credentials using session_id and refresh_token.
+        中文：通过 session_id 与 refresh_token 刷新会话凭证。
+      parameters:
+      - description: Refresh credentials
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/v1.RefreshRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/v1.AuthResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "401":
+          description: Invalid refresh token
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+      summary: Refresh access token
+      tags:
+      - auth
+  /api/v1/users/register:
+    post:
+      consumes:
+      - application/json
+      description: Create a new account with username, email, and password; returns
+        JWT access token, refresh token, and session ID. 中文：使用用户名、邮箱与密码注册新账号，返回 JWT
+        access token、refresh token 与 session ID。
+      parameters:
+      - description: Registration payload
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/v1.RegisterRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/v1.AuthResponse'
+        "400":
+          description: Invalid request body
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "409":
+          description: Username or email already exists
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+      summary: Register user
+      tags:
+      - users
 schemes:
 - http
 - https

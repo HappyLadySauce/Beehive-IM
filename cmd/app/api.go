@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -80,8 +81,8 @@ func run(ctx context.Context, opts *options.Options) error {
 
 	// Initialize HTTP route handlers after the service context is ready.
 	// 在服务上下文就绪后初始化 HTTP 路由处理器。
-	if err := routesInit(ctx, sc); err != nil {
-		return err
+	if err := routesInit(sc); err != nil {
+		return fmt.Errorf("initialize routes: %w", err)
 	}
 
 	serve(opts)
@@ -99,10 +100,14 @@ func serve(opts *options.Options) {
 
 // Initialize HTTP route handlers after the service context is ready.
 // 在服务上下文就绪后初始化 HTTP 路由处理器。
-func routesInit(ctx context.Context, sc *svc.ServiceContext) error {
+func routesInit(svcCtx *svc.ServiceContext) error {
 	// Initialize route handlers with the service context.
-	if err := authroute.Init(sc); err != nil {
-		return err
+	var errs error
+	if err := authroute.Init(svcCtx); err != nil {
+		errs = errors.Join(errs, err)
 	}
-	return userroute.Init(sc)
+	if err := userroute.Init(svcCtx); err != nil {
+		errs = errors.Join(errs, err)
+	}
+	return errs
 }
