@@ -201,6 +201,34 @@
                     }
                 }
             }
+        },
+        "/api/v1/ws/connect": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Upgrade to WebSocket after JWT authentication; on success returns HTTP 101 Switching Protocols and exchanges JSON Envelope frames. 中文：JWT 认证后将 HTTP 连接升级为 WebSocket；成功时返回 HTTP 101，帧格式为 JSON Envelope。",
+                "tags": [
+                    "ws"
+                ],
+                "summary": "WebSocket connect",
+                "responses": {
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/v1.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Failed to upgrade connection",
+                        "schema": {
+                            "$ref": "#/definitions/v1.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {

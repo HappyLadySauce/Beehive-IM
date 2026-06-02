@@ -223,6 +223,25 @@ paths:
       summary: Register user
       tags:
       - users
+  /api/v1/ws/connect:
+    get:
+      description: Upgrade to WebSocket after JWT authentication; on success returns
+        HTTP 101 Switching Protocols and exchanges JSON Envelope frames. 中文：JWT 认证后将
+        HTTP 连接升级为 WebSocket；成功时返回 HTTP 101，帧格式为 JSON Envelope。
+      responses:
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+        "500":
+          description: Failed to upgrade connection
+          schema:
+            $ref: '#/definitions/v1.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: WebSocket connect
+      tags:
+      - ws
 schemes:
 - http
 - https
