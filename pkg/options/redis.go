@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -18,10 +19,11 @@ const (
 // RedisOptions holds CLI / config knobs for a standalone Redis client.
 // RedisOptions 保存独立 Redis 客户端所需的 CLI 与配置项。
 type RedisOptions struct {
-	Host     string `json:"host"     mapstructure:"host"`
-	Port     int    `json:"port"     mapstructure:"port"`
-	Password string `json:"password" mapstructure:"password"`
-	DB       int    `json:"db"       mapstructure:"db"`
+	Host           string        `json:"host"            mapstructure:"host"`
+	Port           int           `json:"port"            mapstructure:"port"`
+	Password       string        `json:"password"        mapstructure:"password"`
+	DB             int           `json:"db"              mapstructure:"db"`
+	CommandTimeout time.Duration `json:"command-timeout" mapstructure:"command-timeout"`
 }
 
 func NewRedisOptions() *RedisOptions {
@@ -41,6 +43,9 @@ func (r *RedisOptions) Validate() error {
 	if r.DB < redisMinDB || r.DB > redisMaxDB {
 		err = errors.Join(err, fmt.Errorf("db must be between %d and %d inclusive, got %d", redisMinDB, redisMaxDB, r.DB))
 	}
+	if r.CommandTimeout <= 0 {
+		err = errors.Join(err, fmt.Errorf("command-timeout must be > 0, got %s", r.CommandTimeout))
+	}
 	return err
 }
 
@@ -49,4 +54,5 @@ func (r *RedisOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.IntVar(&r.Port, "redis-port", 6379, "Redis server TCP port")
 	fs.StringVar(&r.Password, "redis-password", "", "Redis password (empty when the server has no auth)")
 	fs.IntVar(&r.DB, "redis-db", 0, "Redis logical database index (SELECT)")
+	fs.DurationVar(&r.CommandTimeout, "redis-command-timeout", 5*time.Second, "Default Redis command timeout")
 }

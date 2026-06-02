@@ -1,6 +1,9 @@
 package user
 
 import (
+	"errors"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/user"
@@ -16,12 +19,17 @@ func (c *UsersController) RegisterUser() gin.HandlerFunc {
 		}
 
 		userService := user.NewUserService(c.svc)
-		token, err := userService.Register(req)
+		token, err := userService.Register(ctx.Request.Context(), req)
 		if err != nil {
-			ctx.JSON(500, gin.H{"error": "failed to register user"})
+			if errors.Is(err, user.ErrUserAlreadyExists) {
+				ctx.JSON(http.StatusConflict, gin.H{"error": "username or email already exists"})
+				return
+			}
+
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register user"})
 			return
 		}
 
-		ctx.JSON(200, gin.H{"token": token})
+		ctx.JSON(http.StatusOK, gin.H{"token": token})
 	}
 }

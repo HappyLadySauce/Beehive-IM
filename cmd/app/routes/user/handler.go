@@ -32,4 +32,6 @@ func Init(svcCtx *svc.ServiceContext) error {
 	users.POST("/register", u.RegisterUser())
 
 	users.Use(middleware.AuthMiddleware(svcCtx))
+
+	return nil
 }

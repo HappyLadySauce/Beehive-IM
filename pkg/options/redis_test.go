@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -19,12 +20,12 @@ func TestRedisOptionsValidate(t *testing.T) {
 	}{
 		{
 			name:    "valid_minimal",
-			opts:    RedisOptions{Host: "127.0.0.1", Port: 6379, DB: 0},
+			opts:    RedisOptions{Host: "127.0.0.1", Port: 6379, DB: 0, CommandTimeout: 5 * time.Second},
 			wantNil: true,
 		},
 		{
 			name:    "db_zero_ok",
-			opts:    RedisOptions{Host: "x", Port: 6379, DB: 0},
+			opts:    RedisOptions{Host: "x", Port: 6379, DB: 0, CommandTimeout: 5 * time.Second},
 			wantNil: true,
 		},
 		{
@@ -38,26 +39,32 @@ func TestRedisOptionsValidate(t *testing.T) {
 		},
 		{
 			name:       "port_below_min",
-			opts:       RedisOptions{Host: "h", Port: -1, DB: 0},
+			opts:       RedisOptions{Host: "h", Port: -1, DB: 0, CommandTimeout: 5 * time.Second},
 			wantNil:    false,
 			wantSubstr: []string{"port must be between 1 and 65535 inclusive, got -1"},
 		},
 		{
 			name:       "port_above_max",
-			opts:       RedisOptions{Host: "h", Port: 65536, DB: 0},
+			opts:       RedisOptions{Host: "h", Port: 65536, DB: 0, CommandTimeout: 5 * time.Second},
 			wantNil:    false,
 			wantSubstr: []string{"port must be between 1 and 65535 inclusive, got 65536"},
 		},
 		{
 			name:       "negative_db",
-			opts:       RedisOptions{Host: "h", Port: 6379, DB: -1},
+			opts:       RedisOptions{Host: "h", Port: 6379, DB: -1, CommandTimeout: 5 * time.Second},
 			wantNil:    false,
 			wantSubstr: []string{"db must be between 0 and 2147483647 inclusive, got -1"},
 		},
 		{
 			name:    "db_max_int32_ok",
-			opts:    RedisOptions{Host: "h", Port: 6379, DB: math.MaxInt32},
+			opts:    RedisOptions{Host: "h", Port: 6379, DB: math.MaxInt32, CommandTimeout: 5 * time.Second},
 			wantNil: true,
+		},
+		{
+			name:       "zero_command_timeout",
+			opts:       RedisOptions{Host: "h", Port: 6379, DB: 0, CommandTimeout: 0},
+			wantNil:    false,
+			wantSubstr: []string{"command-timeout must be > 0"},
 		},
 	}
 
@@ -104,5 +111,15 @@ func TestRedisOptionsAddFlagsDefaults(t *testing.T) {
 	}
 	if got, want := opts.DB, 0; got != want {
 		t.Errorf("RedisOptions.DB = %d, want %d", got, want)
+	}
+	if got, want := opts.CommandTimeout, 5*time.Second; got != want {
+		t.Errorf("RedisOptions.CommandTimeout = %s, want %s", got, want)
+	}
+}
+
+func TestNewRedisOptionsDefaultCommandTimeoutIsValid(t *testing.T) {
+	opts := NewRedisOptions()
+	if got, want := opts.CommandTimeout, 5*time.Second; got != want {
+		t.Fatalf("CommandTimeout = %s, want %s", got, want)
 	}
 }
