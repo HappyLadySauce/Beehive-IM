@@ -1,126 +1,129 @@
 package ws
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
+	"context"
+	"encoding/json"
 
-	msgsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
+	"k8s.io/klog/v2"
+
+
 )
 
-// MessageSender persists inbound websocket messages and publishes broker events.
-// MessageSender 持久化 WebSocket 入站消息并发布消息代理事件。
-type MessageSender interface {
-	SendMessage(ctx context.Context, sender msgsvc.SenderIdentity, req msgsvc.SendMessageRequest) (msgsvc.StoredMessage, error)
-}
 
+// Hub is the central point for managing WebSocket connections.
+// Hub 是管理 WebSocket 连接的中心点。
 type Hub struct {
-	mu              sync.RWMutex
-	clients         map[*Client]struct{}
-	clientsByUserID map[string]map[*Client]struct{}
-	messageSender   MessageSender
+	mu sync.RWMutex
+
+	// clients is a map of all clients.
+	// clients 是所有客户端的映射。
+	clients map[*Client]struct{}
+	// clientByUserID is a map of clients by user ID.
+	// clientByUserID 是按用户 ID 映射的客户端, 用于多端索引管理。
+	clientByUserID map[string]map[*Client]struct{}
 }
 
-func NewHub(messageSender MessageSender) *Hub {
+// NewHub creates a new Hub.
+// NewHub 创建一个新的 Hub。
+func NewHub() *Hub {
 	return &Hub{
-		clients:         make(map[*Client]struct{}),
-		clientsByUserID: make(map[string]map[*Client]struct{}),
-		messageSender:   messageSender,
+		clients: make(map[*Client]struct{}),
+		clientByUserID: make(map[string]map[*Client]struct{}),
 	}
 }
 
-func (h *Hub) Register(client *Client) {
+// Register registers a client to the hub.
+// Register 注册一个客户端到 Hub。
+func (h *Hub) Register(client *Client) error {
 	if h == nil || client == nil {
-		return
+		return fmt.Errorf("hub or client is nil")
 	}
-	client.hub = h
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	// On reconnect, evict the previous connection for the same UserID + SessionID.
+	// 同一 UserID + SessionID 重连时，先踢掉旧连接，避免 Hub 里残留僵尸 Client。
+	if clients := h.clientByUserID[client.Identity.UserID]; clients != nil {
+		for old := range clients {
+			if !old.IsSame(client) {
+				continue
+			}
+			if err := old.Close(); err != nil {
+				klog.ErrorS(err, "close old client", "userID", client.Identity.UserID, "sessionID", client.Identity.SessionID)
+			}
+			delete(h.clients, old)
+			delete(clients, old)
+		}
+	}
+
+	// Add the new client to the Hub.
+	// 将新客户端添加到 Hub。
 	h.clients[client] = struct{}{}
-	if h.clientsByUserID[client.Identity.UserID] == nil {
-		h.clientsByUserID[client.Identity.UserID] = make(map[*Client]struct{})
+	if h.clientByUserID[client.Identity.UserID] == nil {
+		h.clientByUserID[client.Identity.UserID] = make(map[*Client]struct{})
 	}
-	h.clientsByUserID[client.Identity.UserID][client] = struct{}{}
+	h.clientByUserID[client.Identity.UserID][client] = struct{}{}
+
+	return nil
 }
 
-func (h *Hub) Unregister(client *Client) {
+// Unregister unregisters a client from the hub.
+// Unregister 注销一个客户端从 Hub。
+func (h *Hub) Unregister(client *Client) error {
 	if h == nil || client == nil {
-		return
+		return fmt.Errorf("hub or client is nil")
 	}
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
+	
 	if _, ok := h.clients[client]; !ok {
-		return
+		return nil
+	}
+
+	if err := client.Close(); err != nil {
+		klog.ErrorS(err, "close client", "userID", client.Identity.UserID, "sessionID", client.Identity.SessionID)
 	}
 	delete(h.clients, client)
 
-	userClients := h.clientsByUserID[client.Identity.UserID]
-	delete(userClients, client)
-	if len(userClients) == 0 {
-		delete(h.clientsByUserID, client.Identity.UserID)
+	delete(h.clientByUserID[client.Identity.UserID], client)
+	if len(h.clientByUserID[client.Identity.UserID]) == 0 {
+		delete(h.clientByUserID, client.Identity.UserID)
 	}
-	if client.Conn != nil {
-		_ = client.Conn.Close()
-	}
+	return nil
 }
 
-func (h *Hub) HandleEnvelope(ctx context.Context, sender ClientIdentity, envelope Envelope) error {
+// HandleEnvelope handles an envelope.
+// HandleEnvelope 处理一个 envelope。
+func (h *Hub) HandleEnvelope(ctx context.Context, envelope Envelope) error {
 	if h == nil {
-		return fmt.Errorf("ws hub is not initialized")
+		return fmt.Errorf("hub is nil")
 	}
+
 	switch envelope.Type {
 	case TypeMessageSend:
-		return h.handleMessageSend(ctx, sender, envelope)
+		return h.handleMessageSend(ctx, envelope)
 	default:
-		return fmt.Errorf("unsupported message type: %s", envelope.Type)
+		return fmt.Errorf("unknown envelope type: %d", envelope.Type)
 	}
 }
 
-func (h *Hub) handleMessageSend(ctx context.Context, sender ClientIdentity, envelope Envelope) error {
-	if h.messageSender == nil {
-		return fmt.Errorf("message sender is not configured")
+// handleMessageSend handles a message send envelope.
+// handleMessageSend 处理一个消息发送 envelope。
+func (h *Hub) handleMessageSend(ctx context.Context, envelope Envelope) error {
+	if h == nil {
+		return fmt.Errorf("hub is nil")
 	}
+
 	var payload MessageSendPayload
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
-		return fmt.Errorf("decode message.send payload: %w", err)
+		return fmt.Errorf("unmarshal message send payload: %w", err)
 	}
-	_, err := h.messageSender.SendMessage(ctx, msgsvc.SenderIdentity{
-		UserID:    sender.UserID,
-		Username:  sender.Username,
-		SessionID: sender.SessionID,
-		DeviceID:  sender.DeviceID,
-		Platform:  sender.Platform,
-	}, msgsvc.SendMessageRequest{
-		ClientMessageID: payload.ClientMessageID,
-		ConversationID:  payload.ConversationID,
-		Content:         payload.Content,
-	})
-	return err
-}
 
-// DeliverToOnlineUser enqueues a broker-dispatched message to local websocket clients.
-// DeliverToOnlineUser 将消息代理调度的消息写入本机 WebSocket 客户端队列。
-func (h *Hub) DeliverToOnlineUser(userID string, message Envelope) bool {
-	h.mu.RLock()
-	clients := make([]*Client, 0, len(h.clientsByUserID[userID]))
-	for client := range h.clientsByUserID[userID] {
-		clients = append(clients, client)
-	}
-	h.mu.RUnlock()
+	
 
-	delivered := false
-	for _, client := range clients {
-		select {
-		case client.Send <- message:
-			delivered = true
-		default:
-			h.Unregister(client)
-		}
-	}
-	return delivered
+	return nil
 }

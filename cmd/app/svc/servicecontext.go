@@ -13,9 +13,7 @@ import (
 	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 
-	"github.com/HappyLadySauce/Beehive-IM/cmd/app/infra/rabbitmq"
-	msgsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
-	wssvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/ws"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/mq"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 )
@@ -26,10 +24,7 @@ type ServiceContext struct {
 	Config         *config.Config
 	DB             *gorm.DB
 	Cache          *redis.Client
-	RabbitMQ       *rabbitmq.Client
-	MessageStore   msgsvc.Store
-	MessageService *msgsvc.MessageService
-	Hub            *wssvc.Hub
+	MQ 			   *mq.Client
 }
 
 // NewServiceContext opens PostgreSQL (GORM) and Redis, applies pool settings, and verifies connectivity.
@@ -52,6 +47,11 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	}
 
 	dsn, err := postgreDSN(cfg.Database)
+	if err != nil {
+		return nil, err
+	}
+
+	amqpURL, err := amqpURL(cfg.RabbitMQ)
 	if err != nil {
 		return nil, err
 	}
@@ -87,19 +87,8 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	}
 	klog.InfoS("Redis connection established")
 
-	mq, err := rabbitmq.NewClient(ctx, cfg.RabbitMQ)
+	mq, err := mq.NewClient(amqpURL)
 	if err != nil {
-		_ = rdb.Close()
-		_ = sqlDB.Close()
-		return nil, err
-	}
-
-	messageStore := msgsvc.NewGormStore(db)
-	messageService := msgsvc.NewMessageService(messageStore, mq)
-	hub := wssvc.NewHub(messageService)
-	dispatcher := wssvc.NewMessageDispatcher(messageStore, hub)
-	if err := mq.StartMessageConsumer(ctx, dispatcher.HandleMessageCreated); err != nil {
-		_ = mq.Close()
 		_ = rdb.Close()
 		_ = sqlDB.Close()
 		return nil, err
@@ -109,10 +98,7 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 		Config:         cfg,
 		DB:             db,
 		Cache:          rdb,
-		RabbitMQ:       mq,
-		MessageStore:   messageStore,
-		MessageService: messageService,
-		Hub:            hub,
+		MQ:       		mq,
 	}, nil
 }
 
@@ -131,26 +117,39 @@ func (s *ServiceContext) Close() error {
 	if s.Cache != nil {
 		err = errors.Join(err, s.Cache.Close())
 	}
-	if s.RabbitMQ != nil {
-		err = errors.Join(err, s.RabbitMQ.Close())
+	if s.MQ != nil {
+		err = errors.Join(err, s.MQ.Close())
 	}
 	return err
 }
 
 // postgreDSN builds a libpq-compatible URL DSN for the GORM postgres driver.
 // postgreDSN 构造适用于 GORM postgres 驱动的 URL 形式 DSN，并对特殊字符做转义。
-func postgreDSN(p *options.PostgreOptions) (string, error) {
-	if p == nil {
+func postgreDSN(cfg *options.PostgreOptions) (string, error) {
+	if cfg == nil {
 		return "", fmt.Errorf("postgres options is nil")
 	}
 	u := &url.URL{
 		Scheme: "postgres",
-		User:   url.UserPassword(p.User, p.Password),
-		Host:   net.JoinHostPort(p.Host, strconv.Itoa(p.Port)),
-		Path:   "/" + url.PathEscape(p.DB),
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
+		Path:   "/" + url.PathEscape(cfg.DB),
 	}
 	q := url.Values{}
-	q.Set("sslmode", p.SSLMode)
+	q.Set("sslmode", cfg.SSLMode)
 	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+func amqpURL(cfg *options.RabbitMQOptions) (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("rabbitmq config is nil")
+	}
+	u := &url.URL{
+		Scheme: "amqp",
+		User:   url.UserPassword(cfg.User, cfg.Password),
+		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
+		Path:   "/" + url.PathEscape(cfg.VirtualHost),
+	}
 	return u.String(), nil
 }
