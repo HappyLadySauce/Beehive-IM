@@ -12,6 +12,7 @@ type Config struct {
 	InsecureServing *options.InsecureServingOptions `mapstructure:"insecure"`
 	Database        *options.PostgreOptions         `mapstructure:"database"`
 	Cache           *options.RedisOptions           `mapstructure:"cache"`
+	RabbitMQ        *options.RabbitMQOptions        `mapstructure:"rabbitmq"`
 	JWT             *options.JWTOptions             `mapstructure:"jwt"`
 }
 

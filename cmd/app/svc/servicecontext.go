@@ -37,6 +37,9 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	if cfg.Cache == nil {
 		return nil, fmt.Errorf("cache config is nil")
 	}
+	if cfg.RabbitMQ == nil {
+		return nil, fmt.Errorf("rabbitmq config is nil")
+	}
 	if cfg.JWT == nil {
 		return nil, fmt.Errorf("jwt config is nil")
 	}

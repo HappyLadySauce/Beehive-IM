@@ -14,6 +14,7 @@ type Options struct {
 	InsecureServing *options.InsecureServingOptions `mapstructure:"insecure"`
 	Database        *options.PostgreOptions         `mapstructure:"database"`
 	Cache           *options.RedisOptions           `mapstructure:"cache"`
+	RabbitMQ        *options.RabbitMQOptions        `mapstructure:"rabbitmq"`
 	JWT             *options.JWTOptions             `mapstructure:"jwt"`
 }
 
@@ -23,6 +24,7 @@ func NewOptions(basename string) *Options {
 		InsecureServing: options.NewInsecureServingOptions(),
 		Database:        options.NewPostgreOptions(),
 		Cache:           options.NewRedisOptions(),
+		RabbitMQ:        options.NewRabbitMQOptions(),
 		JWT:             options.NewJWTOptions(),
 	}
 }
@@ -45,6 +47,9 @@ func (o *Options) AddFlags(fs *pflag.FlagSet) *flag.NamedFlagSets {
 
 	cacheFS := nfs.FlagSet("Cache")
 	o.Cache.AddFlags(cacheFS)
+
+	rabbitmqFS := nfs.FlagSet("RabbitMQ")
+	o.RabbitMQ.AddFlags(rabbitmqFS)
 
 	jwtFS := nfs.FlagSet("JWT")
 	o.JWT.AddFlags(jwtFS)

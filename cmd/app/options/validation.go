@@ -7,6 +7,7 @@ func (o *Options) Validate() error {
 	err = errors.Join(err, o.InsecureServing.Validate())
 	err = errors.Join(err, o.Database.Validate())
 	err = errors.Join(err, o.Cache.Validate())
+	err = errors.Join(err, o.RabbitMQ.Validate())
 	err = errors.Join(err, o.JWT.Validate())
 	return err
 }
