@@ -9,7 +9,7 @@ CREATE TABLE users (
     status VARCHAR(20) NOT NULL DEFAULT 'active', -- 用户状态（active, inactive, banned）
     last_login_at TIMESTAMPTZ,                 -- 上次登录时间（带时区）
     created_at TIMESTAMPTZ DEFAULT NOW(),      -- 创建时间
-    updated_at TIMESTAMPTZ DEFAULT NOW()       -- 更新时间
+    updated_at TIMESTAMPTZ DEFAULT NOW(),      -- 更新时间
     deleted_at TIMESTAMPTZ                     -- 删除时间（软删除）
 );
 

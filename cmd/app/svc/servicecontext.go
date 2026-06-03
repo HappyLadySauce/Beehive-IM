@@ -13,6 +13,9 @@ import (
 	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/infra/rabbitmq"
+	msgsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
+	wssvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/ws"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 )
@@ -20,9 +23,13 @@ import (
 // ServiceContext wires shared infrastructure for HTTP handlers and background work.
 // ServiceContext 为 HTTP 处理器与后台任务提供共享的基础设施连接。
 type ServiceContext struct {
-	Config *config.Config
-	DB     *gorm.DB
-	Cache  *redis.Client
+	Config         *config.Config
+	DB             *gorm.DB
+	Cache          *redis.Client
+	RabbitMQ       *rabbitmq.Client
+	MessageStore   msgsvc.Store
+	MessageService *msgsvc.MessageService
+	Hub            *wssvc.Hub
 }
 
 // NewServiceContext opens PostgreSQL (GORM) and Redis, applies pool settings, and verifies connectivity.
@@ -80,10 +87,32 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	}
 	klog.InfoS("Redis connection established")
 
+	mq, err := rabbitmq.NewClient(ctx, cfg.RabbitMQ)
+	if err != nil {
+		_ = rdb.Close()
+		_ = sqlDB.Close()
+		return nil, err
+	}
+
+	messageStore := msgsvc.NewGormStore(db)
+	messageService := msgsvc.NewMessageService(messageStore, mq)
+	hub := wssvc.NewHub(messageService)
+	dispatcher := wssvc.NewMessageDispatcher(messageStore, hub)
+	if err := mq.StartMessageConsumer(ctx, dispatcher.HandleMessageCreated); err != nil {
+		_ = mq.Close()
+		_ = rdb.Close()
+		_ = sqlDB.Close()
+		return nil, err
+	}
+
 	return &ServiceContext{
-		Config:      cfg,
-		DB:          db,
-		Cache:       rdb,
+		Config:         cfg,
+		DB:             db,
+		Cache:          rdb,
+		RabbitMQ:       mq,
+		MessageStore:   messageStore,
+		MessageService: messageService,
+		Hub:            hub,
 	}, nil
 }
 
@@ -101,6 +130,9 @@ func (s *ServiceContext) Close() error {
 	}
 	if s.Cache != nil {
 		err = errors.Join(err, s.Cache.Close())
+	}
+	if s.RabbitMQ != nil {
+		err = errors.Join(err, s.RabbitMQ.Close())
 	}
 	return err
 }

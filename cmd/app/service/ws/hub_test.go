@@ -3,37 +3,88 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
+
+	msgsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
 )
 
-type recordingOfflinePublisher struct {
-	messages []Envelope
+type recordingMessageSender struct {
+	requests []msgsvc.SendMessageRequest
+	err      error
 }
 
-func (p *recordingOfflinePublisher) PublishOffline(ctx context.Context, message Envelope) error {
-	p.messages = append(p.messages, message)
-	return nil
+func (s *recordingMessageSender) SendMessage(ctx context.Context, sender msgsvc.SenderIdentity, req msgsvc.SendMessageRequest) (msgsvc.StoredMessage, error) {
+	s.requests = append(s.requests, req)
+	if s.err != nil {
+		return msgsvc.StoredMessage{}, s.err
+	}
+	return msgsvc.StoredMessage{MessageID: "msg_1"}, nil
 }
 
-func TestHubDeliverMessageToOnlineRecipient(t *testing.T) {
-	publisher := &recordingOfflinePublisher{}
-	hub := NewHub(publisher)
-	recipient := NewClient(ClientIdentity{UserID: "u2", SessionID: "s2"}, nil, 1)
-	hub.Register(recipient)
-	defer hub.Unregister(recipient)
+func TestHubDelegatesMessageSendToMessageService(t *testing.T) {
+	sender := &recordingMessageSender{}
+	hub := NewHub(sender)
 
-	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "u1", SessionID: "s1"}, Envelope{
+	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "1", SessionID: "s1"}, Envelope{
 		ID:   "m1",
 		Type: TypeMessageSend,
 		Payload: mustMarshal(t, MessageSendPayload{
-			ConversationID: "c1",
-			ToUserID:       "u2",
-			Content:        "hello",
+			ClientMessageID: "client-1",
+			ConversationID:  "10",
+			Content:         "hello",
 		}),
 	})
 	if err != nil {
 		t.Fatalf("HandleEnvelope returned error: %v", err)
+	}
+	if len(sender.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(sender.requests))
+	}
+	if sender.requests[0].ClientMessageID != "client-1" {
+		t.Fatalf("client_message_id = %q", sender.requests[0].ClientMessageID)
+	}
+}
+
+func TestHubReturnsMessageServiceError(t *testing.T) {
+	hub := NewHub(&recordingMessageSender{err: errors.New("publish failed")})
+
+	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "1", SessionID: "s1"}, Envelope{
+		ID:   "m1",
+		Type: TypeMessageSend,
+		Payload: mustMarshal(t, MessageSendPayload{
+			ClientMessageID: "client-1",
+			ConversationID:  "10",
+			Content:         "hello",
+		}),
+	})
+	if err == nil {
+		t.Fatalf("HandleEnvelope returned nil, want error")
+	}
+}
+
+func TestHubDeliverToOnlineRecipient(t *testing.T) {
+	hub := NewHub(nil)
+	recipient := NewClient(ClientIdentity{UserID: "2", SessionID: "s2"}, nil, 1)
+	hub.Register(recipient)
+	defer hub.Unregister(recipient)
+
+	delivered := hub.DeliverToOnlineUser("2", Envelope{
+		ID:   "m1",
+		Type: TypeMessageReceive,
+		Payload: mustMarshal(t, MessageReceivePayload{
+			MessageID:      "m1",
+			ConversationID: "10",
+			FromUserID:     "1",
+			ToUserID:       "2",
+			Content:        "hello",
+			Sequence:       1,
+			SentAt:         time.Now().UnixMilli(),
+		}),
+	})
+	if !delivered {
+		t.Fatalf("DeliverToOnlineUser returned false")
 	}
 
 	select {
@@ -41,63 +92,35 @@ func TestHubDeliverMessageToOnlineRecipient(t *testing.T) {
 		if got.Type != TypeMessageReceive {
 			t.Fatalf("message type = %q, want %q", got.Type, TypeMessageReceive)
 		}
-		if len(publisher.messages) != 0 {
-			t.Fatalf("offline publisher called for online recipient")
-		}
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for delivered message")
 	}
 }
 
-func TestHubPublishesOfflineWhenRecipientIsOffline(t *testing.T) {
-	publisher := &recordingOfflinePublisher{}
-	hub := NewHub(publisher)
-
-	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "u1", SessionID: "s1"}, Envelope{
-		ID:   "m1",
-		Type: TypeMessageSend,
-		Payload: mustMarshal(t, MessageSendPayload{
-			ConversationID: "c1",
-			ToUserID:       "u2",
-			Content:        "hello",
-		}),
-	})
-	if err != nil {
-		t.Fatalf("HandleEnvelope returned error: %v", err)
-	}
-
-	if len(publisher.messages) != 1 {
-		t.Fatalf("offline messages = %d, want 1", len(publisher.messages))
-	}
-	if publisher.messages[0].Type != TypeMessageReceive {
-		t.Fatalf("offline message type = %q, want %q", publisher.messages[0].Type, TypeMessageReceive)
-	}
-}
-
-func TestHubRejectsOfflineMessageWithoutPublisher(t *testing.T) {
+func TestHubRejectsMessageWithoutSender(t *testing.T) {
 	hub := NewHub(nil)
 
-	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "u1", SessionID: "s1"}, Envelope{
+	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "1", SessionID: "s1"}, Envelope{
 		ID:   "m1",
 		Type: TypeMessageSend,
 		Payload: mustMarshal(t, MessageSendPayload{
-			ConversationID: "c1",
-			ToUserID:       "u2",
-			Content:        "hello",
+			ClientMessageID: "client-1",
+			ConversationID:  "10",
+			Content:         "hello",
 		}),
 	})
 	if err == nil {
-		t.Fatalf("HandleEnvelope returned nil, want offline publisher error")
+		t.Fatalf("HandleEnvelope returned nil, want message sender error")
 	}
 }
 
 func TestHubRejectsInvalidMessagePayload(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(&recordingMessageSender{})
 
-	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "u1", SessionID: "s1"}, Envelope{
+	err := hub.HandleEnvelope(context.Background(), ClientIdentity{UserID: "1", SessionID: "s1"}, Envelope{
 		ID:      "m1",
 		Type:    TypeMessageSend,
-		Payload: json.RawMessage(`{"to_user_id":"","content":""}`),
+		Payload: json.RawMessage(`{"client_message_id":`),
 	})
 	if err == nil {
 		t.Fatalf("HandleEnvelope returned nil, want validation error")

@@ -22,21 +22,22 @@ type Envelope struct {
 }
 
 // MessageSendPayload is the client request payload for one-to-one chat.
-// MessageSendPayload 是客户端发送一对一聊天消息的请求载荷。
+// MessageSendPayload 是客户端发送聊天消息的请求载荷。
 type MessageSendPayload struct {
-	ConversationID string `json:"conversation_id,omitempty"`
-	ToUserID       string `json:"to_user_id"`
-	Content        string `json:"content"`
+	ClientMessageID string `json:"client_message_id"`
+	ConversationID  string `json:"conversation_id"`
+	Content         string `json:"content"`
 }
 
 // MessageReceivePayload is delivered to the recipient online or through offline transport.
 // MessageReceivePayload 会投递给在线接收方，或交给离线通道补偿。
 type MessageReceivePayload struct {
 	MessageID      string `json:"message_id,omitempty"`
-	ConversationID string `json:"conversation_id,omitempty"`
+	ConversationID string `json:"conversation_id"`
 	FromUserID     string `json:"from_user_id"`
 	ToUserID       string `json:"to_user_id"`
 	Content        string `json:"content"`
+	Sequence       uint64 `json:"sequence"`
 	SentAt         int64  `json:"sent_at"`
 }
 

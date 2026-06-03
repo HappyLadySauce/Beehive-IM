@@ -117,9 +117,14 @@ func TestRedisOptionsAddFlagsDefaults(t *testing.T) {
 	}
 }
 
-func TestNewRedisOptionsDefaultCommandTimeoutIsValid(t *testing.T) {
+// TestNewRedisOptionsReturnsZeroValue ensures defaults live in AddFlags / config binding, not the constructor.
+// TestNewRedisOptionsReturnsZeroValue 确认默认值由 AddFlags 或配置绑定提供，而非构造函数。
+func TestNewRedisOptionsReturnsZeroValue(t *testing.T) {
 	opts := NewRedisOptions()
-	if got, want := opts.CommandTimeout, 5*time.Second; got != want {
-		t.Fatalf("CommandTimeout = %s, want %s", got, want)
+	if opts.Host != "" || opts.Port != 0 || opts.Password != "" || opts.DB != 0 || opts.CommandTimeout != 0 {
+		t.Fatalf("NewRedisOptions() = %+v, want zero-value struct", *opts)
+	}
+	if err := opts.Validate(); err == nil {
+		t.Fatal("Validate() = nil, want error for unconfigured options")
 	}
 }

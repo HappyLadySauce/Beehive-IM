@@ -52,7 +52,7 @@ func TestAddConfigFlagBindsEnvWithBasenamePrefix(t *testing.T) {
 
 	fs := pflag.NewFlagSet("t", pflag.ContinueOnError)
 	AddConfigFlag(fs, "Beehive-IM")
-	t.Setenv("BEEHIVE_BLOG_FOO_BAR", "from-env")
+	t.Setenv("BEEHIVE_IM_FOO_BAR", "from-env")
 
 	if got, want := viper.GetString("foo.bar"), "from-env"; got != want {
 		t.Errorf("viper.GetString(foo.bar) = %q, want %q", got, want)

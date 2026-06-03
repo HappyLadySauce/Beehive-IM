@@ -40,6 +40,27 @@ services:
     networks:
       - beehive-network
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: beehive-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      TZ: Asia/Shanghai
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ../../data/rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - beehive-network
+
 networks:
   beehive-network:
     driver: bridge

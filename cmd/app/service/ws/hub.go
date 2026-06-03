@@ -4,28 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
+
+	msgsvc "github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
 )
 
-// OfflinePublisher publishes messages that cannot be delivered to an online recipient.
-// OfflinePublisher 发布无法在线投递的消息，RabbitMQ 接入时实现该接口。
-type OfflinePublisher interface {
-	PublishOffline(ctx context.Context, message Envelope) error
+// MessageSender persists inbound websocket messages and publishes broker events.
+// MessageSender 持久化 WebSocket 入站消息并发布消息代理事件。
+type MessageSender interface {
+	SendMessage(ctx context.Context, sender msgsvc.SenderIdentity, req msgsvc.SendMessageRequest) (msgsvc.StoredMessage, error)
 }
 
 type Hub struct {
-	mu               sync.RWMutex
-	clients          map[*Client]struct{}
-	clientsByUserID  map[string]map[*Client]struct{}
-	offlinePublisher OfflinePublisher
+	mu              sync.RWMutex
+	clients         map[*Client]struct{}
+	clientsByUserID map[string]map[*Client]struct{}
+	messageSender   MessageSender
 }
 
-func NewHub(offlinePublisher OfflinePublisher) *Hub {
+func NewHub(messageSender MessageSender) *Hub {
 	return &Hub{
-		clients:          make(map[*Client]struct{}),
-		clientsByUserID:  make(map[string]map[*Client]struct{}),
-		offlinePublisher: offlinePublisher,
+		clients:         make(map[*Client]struct{}),
+		clientsByUserID: make(map[string]map[*Client]struct{}),
+		messageSender:   messageSender,
 	}
 }
 
@@ -81,45 +82,30 @@ func (h *Hub) HandleEnvelope(ctx context.Context, sender ClientIdentity, envelop
 }
 
 func (h *Hub) handleMessageSend(ctx context.Context, sender ClientIdentity, envelope Envelope) error {
+	if h.messageSender == nil {
+		return fmt.Errorf("message sender is not configured")
+	}
 	var payload MessageSendPayload
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
 		return fmt.Errorf("decode message.send payload: %w", err)
 	}
-	payload.ToUserID = strings.TrimSpace(payload.ToUserID)
-	payload.Content = strings.TrimSpace(payload.Content)
-	if payload.ToUserID == "" {
-		return fmt.Errorf("to_user_id is required")
-	}
-	if payload.Content == "" {
-		return fmt.Errorf("content is required")
-	}
-
-	receivePayload := MessageReceivePayload{
-		MessageID:      envelope.ID,
-		ConversationID: payload.ConversationID,
-		FromUserID:     sender.UserID,
-		ToUserID:       payload.ToUserID,
-		Content:        payload.Content,
-		SentAt:         envelope.Timestamp,
-	}
-	message, err := newEnvelope(envelope.ID, TypeMessageReceive, receivePayload)
-	if err != nil {
-		return fmt.Errorf("encode receive message: %w", err)
-	}
-
-	if h.deliverToOnlineUser(payload.ToUserID, message) {
-		return nil
-	}
-	if h.offlinePublisher == nil {
-		return fmt.Errorf("offline publisher is not configured")
-	}
-	if err := h.offlinePublisher.PublishOffline(ctx, message); err != nil {
-		return fmt.Errorf("publish offline message: %w", err)
-	}
-	return nil
+	_, err := h.messageSender.SendMessage(ctx, msgsvc.SenderIdentity{
+		UserID:    sender.UserID,
+		Username:  sender.Username,
+		SessionID: sender.SessionID,
+		DeviceID:  sender.DeviceID,
+		Platform:  sender.Platform,
+	}, msgsvc.SendMessageRequest{
+		ClientMessageID: payload.ClientMessageID,
+		ConversationID:  payload.ConversationID,
+		Content:         payload.Content,
+	})
+	return err
 }
 
-func (h *Hub) deliverToOnlineUser(userID string, message Envelope) bool {
+// DeliverToOnlineUser enqueues a broker-dispatched message to local websocket clients.
+// DeliverToOnlineUser 将消息代理调度的消息写入本机 WebSocket 客户端队列。
+func (h *Hub) DeliverToOnlineUser(userID string, message Envelope) bool {
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clientsByUserID[userID]))
 	for client := range h.clientsByUserID[userID] {

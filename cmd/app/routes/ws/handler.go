@@ -17,7 +17,7 @@ type WsController struct {
 // NewWsController 基于给定 ServiceContext 构造 WsController。
 func NewWsController(svcCtx *svc.ServiceContext) *WsController {
 	return &WsController{
-		hub: wssvc.NewHub(nil),
+		hub: svcCtx.Hub,
 	}
 }
 
