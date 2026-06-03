@@ -149,7 +149,7 @@ func amqpURL(cfg *options.RabbitMQOptions) (string, error) {
 		Scheme: "amqp",
 		User:   url.UserPassword(cfg.User, cfg.Password),
 		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		Path:   "/" + url.PathEscape(cfg.VirtualHost),
+		Path:   url.PathEscape(cfg.VirtualHost),
 	}
 	return u.String(), nil
 }
