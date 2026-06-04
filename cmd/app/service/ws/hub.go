@@ -6,6 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
+
 	"k8s.io/klog/v2"
 
 
@@ -118,12 +120,10 @@ func (h *Hub) handleMessageSend(ctx context.Context, envelope Envelope) error {
 		return fmt.Errorf("hub is nil")
 	}
 
-	var payload MessageSendPayload
+	var payload message.MessageSendPayload
 	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
 		return fmt.Errorf("unmarshal message send payload: %w", err)
 	}
-
-	
 
 	return nil
 }

@@ -53,13 +53,11 @@ func (ConversationMember) TableName() string {
 // Message 保存不可变文本消息内容及幂等元数据。
 type Message struct {
 	ID              uint64         `gorm:"primaryKey" json:"id"`
-	MessageID       string         `gorm:"type:varchar(64);not null;uniqueIndex" json:"message_id"`
 	ConversationID  uint64         `gorm:"not null;uniqueIndex:idx_message_conversation_sequence" json:"conversation_id"`
 	SenderUserID    uint64         `gorm:"not null" json:"sender_user_id"`
 	ClientMessageID string         `gorm:"type:varchar(128);not null;uniqueIndex:idx_message_sender_client" json:"client_message_id"`
 	Content         string         `gorm:"type:text;not null" json:"content"`
 	Status          string         `gorm:"type:varchar(20);not null;default:'created'" json:"status"`
-	Sequence        uint64         `gorm:"not null;uniqueIndex:idx_message_conversation_sequence" json:"sequence"`
 	SentAt          time.Time      `json:"sent_at"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
@@ -78,7 +76,6 @@ type MessageDelivery struct {
 	ConversationID  uint64         `gorm:"not null" json:"conversation_id"`
 	RecipientUserID uint64         `gorm:"not null;uniqueIndex:idx_delivery_message_recipient" json:"recipient_user_id"`
 	Status          string         `gorm:"type:varchar(20);not null;default:'pending'" json:"status"`
-	AttemptCount    int            `gorm:"not null;default:0" json:"attempt_count"`
 	DeliveredAt     *time.Time     `json:"delivered_at,omitempty"`
 	LastError       *string        `gorm:"type:text" json:"last_error,omitempty"`
 	CreatedAt       time.Time      `json:"created_at"`

@@ -87,12 +87,13 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	}
 	klog.InfoS("Redis connection established")
 
-	mq, err := mq.NewClient(amqpURL)
+	mq, err := mq.NewClient(amqpURL, cfg.RabbitMQ.Exchange)
 	if err != nil {
 		_ = rdb.Close()
 		_ = sqlDB.Close()
 		return nil, err
 	}
+	klog.InfoS("RabbitMQ connection established")
 
 	return &ServiceContext{
 		Config:         cfg,
