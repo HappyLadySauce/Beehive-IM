@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 
+	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -167,11 +168,14 @@ func amqpURL(cfg *options.RabbitMQOptions) (string, error) {
 	if cfg == nil {
 		return "", fmt.Errorf("rabbitmq config is nil")
 	}
-	u := &url.URL{
-		Scheme: "amqp",
-		User:   url.UserPassword(cfg.User, cfg.Password),
-		Host:   net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		Path:   url.PathEscape(cfg.VirtualHost),
-	}
-	return u.String(), nil
+	// Build via amqp091.URI so the default vhost "/" is not mis-encoded as "%2F" (which RabbitMQ treats as a different vhost name).
+	// 通过 amqp091.URI 构建，避免默认 vhost "/" 被误编码为 "%2F"（在服务端会被当作另一个 vhost 名称）。
+	return (amqp.URI{
+		Scheme:   "amqp",
+		Host:     cfg.Host,
+		Port:     cfg.Port,
+		Username: cfg.User,
+		Password: cfg.Password,
+		Vhost:    cfg.VirtualHost,
+	}).String(), nil
 }
