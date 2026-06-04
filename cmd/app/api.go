@@ -14,9 +14,7 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/options"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/router"
 	authroute "github.com/HappyLadySauce/Beehive-IM/cmd/app/routes/auth"
-	conversationroute "github.com/HappyLadySauce/Beehive-IM/cmd/app/routes/conversation"
 	userroute "github.com/HappyLadySauce/Beehive-IM/cmd/app/routes/user"
-	wsroute "github.com/HappyLadySauce/Beehive-IM/cmd/app/routes/ws"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 )
@@ -110,12 +108,6 @@ func routesInit(svcCtx *svc.ServiceContext) error {
 		errs = errors.Join(errs, err)
 	}
 	if err := userroute.Init(svcCtx); err != nil {
-		errs = errors.Join(errs, err)
-	}
-	if err := conversationroute.Init(svcCtx); err != nil {
-		errs = errors.Join(errs, err)
-	}
-	if err := wsroute.Init(svcCtx); err != nil {
 		errs = errors.Join(errs, err)
 	}
 	return errs
