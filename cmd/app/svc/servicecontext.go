@@ -28,7 +28,6 @@ type ServiceContext struct {
 	DB       *gorm.DB
 	Cache    *redis.Client
 	MQ       *mq.Client
-	Messages *message.MessageService
 	Hub      *ws.Hub
 }
 
@@ -106,8 +105,7 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 		Cache:  rdb,
 		MQ:     mq,
 	}
-	sc.Messages = message.NewMessageService(db, mq)
-	sc.Hub = ws.NewHub(sc.Messages)
+	sc.Hub = ws.NewHub(message.NewMessageService(db, mq))
 
 	if err := mq.EnsureDispatchQueue(cfg.RabbitMQ.Queue, message.DeliverTopicPattern); err != nil {
 		_ = mq.Close()

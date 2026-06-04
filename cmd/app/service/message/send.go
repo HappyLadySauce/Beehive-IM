@@ -207,6 +207,8 @@ func createMessageWithDeliveries(
 	return true, nil
 }
 
+// publishToRecipients publishes the message to the recipients.
+// publishToRecipients 将消息发布给接收者。
 func (s *MessageService) publishToRecipients(ctx context.Context, stored model.Message, senderUserID uint64, recipientIDs []uint64) error {
 	for _, recipientID := range recipientIDs {
 		deliverBody := DeliverPayloadFromModel(stored, senderUserID, recipientID)
