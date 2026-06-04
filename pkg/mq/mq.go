@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -40,14 +41,27 @@ func NewClient(url string, exchange string) (*Client, error) {
 	return &Client{conn: conn, channel: channel, exchange: exchange}, nil
 }
 
+// Exchange returns the configured topic exchange name.
+// Exchange 返回已配置的 Topic 交换机名称。
+func (c *Client) Exchange() string {
+	if c == nil {
+		return ""
+	}
+	return c.exchange
+}
+
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	var err error
 	if c.channel != nil {
-		return c.channel.Close()
+		err = c.channel.Close()
+		c.channel = nil
 	}
 	if c.conn != nil {
-		return c.conn.Close()
+		err = errors.Join(err, c.conn.Close())
+		c.conn = nil
 	}
-	return nil
+	return err
 }

@@ -1,20 +1,22 @@
 package message
 
 import (
-	"github.com/HappyLadySauce/Beehive-IM/cmd/app/svc"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/mq"
+	"gorm.io/gorm"
 )
 
-// MessageService is the service for managing messages.
-// MessageService 是管理消息的服务。
+// MessageService orchestrates message persistence and MQ fan-out.
+// MessageService 负责消息落库与 MQ 扇出。
 type MessageService struct {
+	DB *gorm.DB
 	MQ *mq.Client
 }
 
 // NewMessageService creates a new MessageService.
 // NewMessageService 创建一个新的 MessageService。
-func NewMessageService(svcCtx *svc.ServiceContext) *MessageService {
+func NewMessageService(db *gorm.DB, mqClient *mq.Client) *MessageService {
 	return &MessageService{
-		MQ: svcCtx.MQ,
+		DB: db,
+		MQ: mqClient,
 	}
 }

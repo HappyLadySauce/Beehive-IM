@@ -1,39 +1,33 @@
 package mq
 
 import (
-	"fmt"
 	"context"
+	"fmt"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// SendMessage sends a message to the specified exchange and topic.
-// SendMessage 发送消息到指定的交换机和主题。
+// SendMessage publishes a persistent JSON message to the configured topic exchange.
+// SendMessage 向已配置的 Topic 交换机发布持久化 JSON 消息。
 func (c *Client) SendMessage(ctx context.Context, topic string, message []byte) error {
 	if c == nil {
 		return fmt.Errorf("mq client is nil")
 	}
-	if c.channel == nil {
-		c.mu.RLock()
-		channel, err := c.conn.Channel()
-		if err != nil {
-			c.mu.RUnlock()
-			return fmt.Errorf("failed to open a channel: %w", err)
-		}
-		c.channel = channel
-		c.mu.RUnlock()
-	}
 
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.channel == nil {
+		return fmt.Errorf("publish channel is nil")
+	}
 
 	err := c.channel.PublishWithContext(ctx, c.exchange, topic, false, false, amqp.Publishing{
-		ContentType: "application/json",
-		Body:        message,
+		ContentType:  "application/json",
+		DeliveryMode: amqp.Persistent,
+		Body:         message,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to publish message: %v", err)
+		return fmt.Errorf("publish message: %w", err)
 	}
-
 	return nil
 }

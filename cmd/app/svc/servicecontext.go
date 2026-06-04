@@ -13,18 +13,22 @@ import (
 	"gorm.io/gorm"
 	"k8s.io/klog/v2"
 
-	"github.com/HappyLadySauce/Beehive-IM/pkg/mq"
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/ws"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
+	"github.com/HappyLadySauce/Beehive-IM/pkg/mq"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/options"
 )
 
 // ServiceContext wires shared infrastructure for HTTP handlers and background work.
 // ServiceContext 为 HTTP 处理器与后台任务提供共享的基础设施连接。
 type ServiceContext struct {
-	Config         *config.Config
-	DB             *gorm.DB
-	Cache          *redis.Client
-	MQ 			   *mq.Client
+	Config   *config.Config
+	DB       *gorm.DB
+	Cache    *redis.Client
+	MQ       *mq.Client
+	Messages *message.MessageService
+	Hub      *ws.Hub
 }
 
 // NewServiceContext opens PostgreSQL (GORM) and Redis, applies pool settings, and verifies connectivity.
@@ -95,12 +99,29 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	}
 	klog.InfoS("RabbitMQ connection established")
 
-	return &ServiceContext{
-		Config:         cfg,
-		DB:             db,
-		Cache:          rdb,
-		MQ:       		mq,
-	}, nil
+	sc := &ServiceContext{
+		Config: cfg,
+		DB:     db,
+		Cache:  rdb,
+		MQ:     mq,
+	}
+	sc.Messages = message.NewMessageService(db, mq)
+	sc.Hub = ws.NewHub(sc.Messages)
+
+	if err := mq.EnsureDispatchQueue(cfg.RabbitMQ.Queue, message.DeliverTopicPattern); err != nil {
+		_ = mq.Close()
+		_ = rdb.Close()
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("ensure dispatch queue: %w", err)
+	}
+
+	go func() {
+		if err := sc.Hub.StartDeliveryConsumer(ctx, mq, cfg.RabbitMQ.Queue, cfg.RabbitMQ.Prefetch); err != nil && ctx.Err() == nil {
+			klog.ErrorS(err, "message delivery consumer stopped")
+		}
+	}()
+
+	return sc, nil
 }
 
 // Close releases database and Redis resources (SQL first, then Redis).

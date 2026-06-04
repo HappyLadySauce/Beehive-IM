@@ -1,37 +1,34 @@
 package ws
 
 import (
-	"fmt"
-	"sync"
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
+	"sync"
+	"time"
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
-
 	"k8s.io/klog/v2"
-
-
 )
-
 
 // Hub is the central point for managing WebSocket connections.
 // Hub 是管理 WebSocket 连接的中心点。
 type Hub struct {
 	mu sync.RWMutex
 
-	// clients is a map of all clients.
-	// clients 是所有客户端的映射。
-	clients map[*Client]struct{}
-	// clientByUserID is a map of clients by user ID.
-	// clientByUserID 是按用户 ID 映射的客户端, 用于多端索引管理。
+	messages *message.MessageService
+
+	clients        map[*Client]struct{}
 	clientByUserID map[string]map[*Client]struct{}
 }
 
 // NewHub creates a new Hub.
 // NewHub 创建一个新的 Hub。
-func NewHub() *Hub {
+func NewHub(messages *message.MessageService) *Hub {
 	return &Hub{
-		clients: make(map[*Client]struct{}),
+		messages:       messages,
+		clients:        make(map[*Client]struct{}),
 		clientByUserID: make(map[string]map[*Client]struct{}),
 	}
 }
@@ -46,8 +43,6 @@ func (h *Hub) Register(client *Client) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// On reconnect, evict the previous connection for the same UserID + SessionID.
-	// 同一 UserID + SessionID 重连时，先踢掉旧连接，避免 Hub 里残留僵尸 Client。
 	if clients := h.clientByUserID[client.Identity.UserID]; clients != nil {
 		for old := range clients {
 			if !old.IsSame(client) {
@@ -61,8 +56,6 @@ func (h *Hub) Register(client *Client) error {
 		}
 	}
 
-	// Add the new client to the Hub.
-	// 将新客户端添加到 Hub。
 	h.clients[client] = struct{}{}
 	if h.clientByUserID[client.Identity.UserID] == nil {
 		h.clientByUserID[client.Identity.UserID] = make(map[*Client]struct{})
@@ -81,43 +74,40 @@ func (h *Hub) Unregister(client *Client) error {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	if _, ok := h.clients[client]; !ok {
 		return nil
 	}
 
-	if err := client.Close(); err != nil {
-		klog.ErrorS(err, "close client", "userID", client.Identity.UserID, "sessionID", client.Identity.SessionID)
-	}
 	delete(h.clients, client)
-
 	delete(h.clientByUserID[client.Identity.UserID], client)
 	if len(h.clientByUserID[client.Identity.UserID]) == 0 {
 		delete(h.clientByUserID, client.Identity.UserID)
 	}
-	return nil
+
+	return client.Close()
 }
 
-// HandleEnvelope handles an envelope.
-// HandleEnvelope 处理一个 envelope。
-func (h *Hub) HandleEnvelope(ctx context.Context, envelope Envelope) error {
-	if h == nil {
-		return fmt.Errorf("hub is nil")
+// HandleEnvelope handles an inbound envelope from a connected client.
+// HandleEnvelope 处理来自已连接客户端的入站 envelope。
+func (h *Hub) HandleEnvelope(ctx context.Context, client *Client, envelope Envelope) error {
+	if h == nil || client == nil {
+		return fmt.Errorf("hub or client is nil")
 	}
 
 	switch envelope.Type {
 	case TypeMessageSend:
-		return h.handleMessageSend(ctx, envelope)
+		return h.handleMessageSend(ctx, client, envelope)
 	default:
 		return fmt.Errorf("unknown envelope type: %d", envelope.Type)
 	}
 }
 
-// handleMessageSend handles a message send envelope.
-// handleMessageSend 处理一个消息发送 envelope。
-func (h *Hub) handleMessageSend(ctx context.Context, envelope Envelope) error {
-	if h == nil {
-		return fmt.Errorf("hub is nil")
+// handleMessageSend persists and fans out a message, then ACKs the sender.
+// handleMessageSend 落库并扇出消息，然后向发送方返回 ACK。
+func (h *Hub) handleMessageSend(ctx context.Context, client *Client, envelope Envelope) error {
+	if h == nil || h.messages == nil {
+		return fmt.Errorf("message service is not configured")
 	}
 
 	var payload message.MessageSendPayload
@@ -125,5 +115,76 @@ func (h *Hub) handleMessageSend(ctx context.Context, envelope Envelope) error {
 		return fmt.Errorf("unmarshal message send payload: %w", err)
 	}
 
+	senderUserID, err := strconv.ParseUint(client.Identity.UserID, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid sender user id: %w", err)
+	}
+
+	result, err := h.messages.SendMessage(ctx, senderUserID, payload)
+	if err != nil {
+		errPayload, marshalErr := message.MarshalProtocolError(err)
+		if marshalErr != nil {
+			return fmt.Errorf("marshal protocol error: %w", marshalErr)
+		}
+		if sendErr := client.SendEnvelope(Envelope{
+			ID:        envelope.ID,
+			Type:      TypeMessageError,
+			Payload:   errPayload,
+			Timestamp: time.Now().UTC(),
+		}); sendErr != nil {
+			return sendErr
+		}
+		return nil
+	}
+
+	ackPayload, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshal ack payload: %w", err)
+	}
+
+	return client.SendEnvelope(Envelope{
+		ID:        envelope.ID,
+		Type:      TypeMessageAck,
+		Payload:   ackPayload,
+		Timestamp: time.Now().UTC(),
+	})
+}
+
+// DeliverToUser pushes a received message to all online sessions of the user.
+// DeliverToUser 将收到的消息推送给该用户的所有在线会话。
+func (h *Hub) DeliverToUser(ctx context.Context, payload message.MessageDeliverPayload) error {
+	if h == nil {
+		return fmt.Errorf("hub is nil")
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal receive payload: %w", err)
+	}
+
+	envelope := Envelope{
+		ID:        payload.MessageID,
+		Type:      TypeMessageReceive,
+		Payload:   body,
+		Timestamp: time.Now().UTC(),
+	}
+
+	h.mu.RLock()
+	clientSet := h.clientByUserID[payload.RecipientUserID]
+	targets := make([]*Client, 0, len(clientSet))
+	for client := range clientSet {
+		targets = append(targets, client)
+	}
+	h.mu.RUnlock()
+
+	for _, client := range targets {
+		if err := client.SendEnvelope(envelope); err != nil {
+			klog.ErrorS(err, "deliver message to client",
+				"recipientUserID", payload.RecipientUserID,
+				"messageID", payload.MessageID,
+				"sessionID", client.Identity.SessionID,
+			)
+		}
+	}
 	return nil
 }
