@@ -313,7 +313,51 @@ ReadPump                   |
                               WritePump -> Client
 ```
 
-## 10. 总结
+## 10. 多实例重构后的目标链路
+
+本次重构后，单 queue 竞争消费会替换为 Presence 定向的多 queue 模式：
+
+```text
+WS Register
+  -> Hub.Register
+  -> Redis presence:
+       im:presence:user:<userID>:instances
+       im:presence:user:<userID>:instance:<instanceID>:sessions
+       im:presence:session:<sessionID>
+
+SendMessage
+  -> PostgreSQL transaction
+       - insert messages
+       - insert message_deliveries(status=pending)
+  -> TypeMessageAck
+
+Delivery Publisher
+  -> scan pending deliveries
+  -> Redis presence lookup
+  -> publish with confirm:
+       exchange=im.events
+       routing_key=message.deliver.instance.<instanceID>
+
+Instance Consumer
+  -> queue=im.message.dispatch.<instanceID>
+  -> Hub.DeliverToUser
+  -> status dispatched/delivered
+```
+
+新的 ACK 语义是“消息已持久化并进入异步投递流程”，不是“接收端已收到”。`message_deliveries.status` 也被拆分为 `pending`、`published`、`dispatched`、`delivered`、`failed`，避免把“已发布到 MQ”误记为“客户端已收到”。
+
+## 11. Elasticsearch 说明
+
+Elasticsearch 暂不纳入实时投递链路。很多 IM 项目引入 ES 的主要目的不是推送消息，而是：
+
+- 消息全文搜索：按关键词、时间、会话、发送人组合检索。
+- 审计与运营查询：比 PostgreSQL 直接扫 text 更适合高维过滤和聚合。
+- 搜索排序与高亮：支持相关性排序、分词、高亮片段。
+- 降低主库查询压力：历史搜索走异步索引，不阻塞消息写入主路径。
+
+推荐后续作为异步索引消费者接入：PostgreSQL 仍保存消息事实数据，RabbitMQ 或 outbox 事件驱动 ES 索引；ES 只作为搜索视图，可重建，不承担消息可靠投递。
+
+## 12. 总结
 
 当前 WS 与 MessageService 的职责边界总体清晰：WS 管连接和在线投递，MessageService 管业务消息和持久化，RabbitMQ 管异步分发，PostgreSQL 管事实状态。该设计适合单体 IM 的开发阶段，并且已经具备幂等、会话成员校验、消息序号、per-recipient delivery 等生产级基础。
 

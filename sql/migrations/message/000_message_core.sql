@@ -44,18 +44,22 @@ CREATE TABLE message_deliveries (
     recipient_user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     attempt_count INTEGER NOT NULL DEFAULT 0,
+    published_at TIMESTAMPTZ,
+    dispatched_at TIMESTAMPTZ,
     delivered_at TIMESTAMPTZ,
     last_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,
-    CONSTRAINT message_deliveries_unique_recipient UNIQUE (message_id, recipient_user_id)
+    CONSTRAINT message_deliveries_unique_recipient UNIQUE (message_id, recipient_user_id),
+    CONSTRAINT message_deliveries_status_check CHECK (status IN ('pending', 'published', 'dispatched', 'delivered', 'failed'))
 );
 
 CREATE INDEX idx_conversation_members_user_id ON conversation_members(user_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_messages_conversation_sequence ON messages(conversation_id, sequence DESC) WHERE deleted_at IS NULL;
 CREATE INDEX idx_messages_sender_client ON messages(sender_user_id, client_message_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_message_deliveries_recipient_status ON message_deliveries(recipient_user_id, status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_message_deliveries_publish_scan ON message_deliveries(status, updated_at, attempt_count) WHERE deleted_at IS NULL;
 
 CREATE TRIGGER update_conversations_updated_at
     BEFORE UPDATE ON conversations

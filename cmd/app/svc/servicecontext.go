@@ -15,6 +15,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/message"
+	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/presence"
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/service/ws"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/config"
 	"github.com/HappyLadySauce/Beehive-IM/pkg/mq"
@@ -28,6 +29,7 @@ type ServiceContext struct {
 	DB       *gorm.DB
 	Cache    *redis.Client
 	MQ       *mq.Client
+	Presence *presence.Service
 	Hub      *ws.Hub
 }
 
@@ -99,23 +101,51 @@ func NewServiceContext(ctx context.Context, cfg *config.Config) (*ServiceContext
 	}
 	klog.InfoS("RabbitMQ connection established")
 
-	sc := &ServiceContext{
-		Config: cfg,
-		DB:     db,
-		Cache:  rdb,
-		MQ:     mq,
+	presenceService, err := presence.NewService(rdb, cfg.RabbitMQ.InstanceID, cfg.RabbitMQ.PresenceTTL)
+	if err != nil {
+		_ = mq.Close()
+		_ = rdb.Close()
+		_ = sqlDB.Close()
+		return nil, fmt.Errorf("create presence service: %w", err)
 	}
-	sc.Hub = ws.NewHub(message.NewMessageService(db, mq))
 
-	if err := mq.EnsureDispatchQueue(cfg.RabbitMQ.Queue, message.DeliverTopicPattern); err != nil {
+	messageService := message.NewMessageService(
+		db,
+		mq,
+		presenceService,
+		cfg.RabbitMQ.PublishTimeout,
+		cfg.RabbitMQ.PublishBatchSize,
+		cfg.RabbitMQ.DeliveryMaxAttempts,
+	)
+
+	sc := &ServiceContext{
+		Config:   cfg,
+		DB:       db,
+		Cache:    rdb,
+		MQ:       mq,
+		Presence: presenceService,
+	}
+	sc.Hub = ws.NewHub(messageService, presenceService)
+
+	instanceQueue := message.InstanceQueueName(cfg.RabbitMQ.Queue, cfg.RabbitMQ.InstanceID)
+	instanceTopic := message.DeliverInstanceTopic(cfg.RabbitMQ.InstanceID)
+	if err := mq.EnsureDispatchQueue(instanceQueue, instanceTopic); err != nil {
 		_ = mq.Close()
 		_ = rdb.Close()
 		_ = sqlDB.Close()
 		return nil, fmt.Errorf("ensure dispatch queue: %w", err)
 	}
 
+	go sc.Hub.StartPresenceHeartbeat(ctx, cfg.RabbitMQ.PresenceHeartbeatInterval)
+
 	go func() {
-		if err := sc.Hub.StartDeliveryConsumer(ctx, mq, cfg.RabbitMQ.Queue, cfg.RabbitMQ.Prefetch); err != nil && ctx.Err() == nil {
+		if err := messageService.StartDeliveryPublisher(ctx, cfg.RabbitMQ.PublishWorkerConcurrency); err != nil && ctx.Err() == nil {
+			klog.ErrorS(err, "message delivery publisher stopped")
+		}
+	}()
+
+	go func() {
+		if err := sc.Hub.StartDeliveryConsumer(ctx, mq, cfg.RabbitMQ.Queue, cfg.RabbitMQ.InstanceID, cfg.RabbitMQ.Prefetch, cfg.RabbitMQ.ConsumeConcurrency); err != nil && ctx.Err() == nil {
 			klog.ErrorS(err, "message delivery consumer stopped")
 		}
 	}()

@@ -12,9 +12,11 @@ const (
 
 	MessageStatusCreated = "created"
 
-	DeliveryStatusPending   = "pending"
-	DeliveryStatusDelivered = "delivered"
-	DeliveryStatusFailed    = "failed"
+	DeliveryStatusPending    = "pending"
+	DeliveryStatusPublished  = "published"
+	DeliveryStatusDispatched = "dispatched"
+	DeliveryStatusDelivered  = "delivered"
+	DeliveryStatusFailed     = "failed"
 )
 
 // Conversation stores chat conversation metadata.
@@ -79,6 +81,8 @@ type MessageDelivery struct {
 	RecipientUserID uint64         `gorm:"not null;uniqueIndex:idx_delivery_message_recipient" json:"recipient_user_id"`
 	Status          string         `gorm:"type:varchar(20);not null;default:'pending'" json:"status"`
 	AttemptCount    int            `gorm:"not null;default:0" json:"attempt_count"`
+	PublishedAt     *time.Time     `json:"published_at,omitempty"`
+	DispatchedAt    *time.Time     `json:"dispatched_at,omitempty"`
 	DeliveredAt     *time.Time     `json:"delivered_at,omitempty"`
 	LastError       *string        `gorm:"type:text" json:"last_error,omitempty"`
 	CreatedAt       time.Time      `json:"created_at"`

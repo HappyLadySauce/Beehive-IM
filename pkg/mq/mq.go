@@ -9,10 +9,11 @@ import (
 )
 
 type Client struct {
-	conn    *amqp.Connection
-	channel *amqp.Channel
+	conn     *amqp.Connection
+	channel  *amqp.Channel
+	confirms chan amqp.Confirmation
 	exchange string
-	mu	sync.RWMutex
+	mu       sync.RWMutex
 }
 
 func NewClient(url string, exchange string) (*Client, error) {
@@ -37,8 +38,12 @@ func NewClient(url string, exchange string) (*Client, error) {
 	); err != nil {
 		return nil, fmt.Errorf("failed to declare exchange: %v", err)
 	}
+	if err := channel.Confirm(false); err != nil {
+		return nil, fmt.Errorf("enable publisher confirms: %w", err)
+	}
+	confirms := channel.NotifyPublish(make(chan amqp.Confirmation, 1))
 
-	return &Client{conn: conn, channel: channel, exchange: exchange}, nil
+	return &Client{conn: conn, channel: channel, confirms: confirms, exchange: exchange}, nil
 }
 
 // Exchange returns the configured topic exchange name.

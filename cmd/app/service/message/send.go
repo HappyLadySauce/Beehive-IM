@@ -2,7 +2,6 @@ package message
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -14,10 +13,10 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/cmd/app/model"
 )
 
-// SendMessage validates membership, persists the message, creates deliveries, and fans out to MQ.
-// SendMessage 校验成员关系、落库、创建投递记录并按用户扇出到 MQ。
+// SendMessage validates membership, persists the message, and creates async delivery rows.
+// SendMessage 校验成员关系、落库，并创建异步投递记录。
 func (s *MessageService) SendMessage(ctx context.Context, senderUserID uint64, req MessageSendPayload) (*MessageSendResult, error) {
-	if s == nil || s.DB == nil || s.MQ == nil {
+	if s == nil || s.DB == nil {
 		return nil, fmt.Errorf("message service is not configured")
 	}
 
@@ -54,12 +53,6 @@ func (s *MessageService) SendMessage(ctx context.Context, senderUserID uint64, r
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	if len(recipientIDs) > 0 {
-		if err := s.publishToRecipients(ctx, stored, senderUserID, recipientIDs); err != nil {
-			return nil, err
-		}
 	}
 
 	return ResultFromModel(stored), nil
@@ -205,45 +198,4 @@ func createMessageWithDeliveries(
 		}
 	}
 	return true, nil
-}
-
-// publishToRecipients publishes the message to the recipients.
-// publishToRecipients 将消息发布给接收者。
-func (s *MessageService) publishToRecipients(ctx context.Context, stored model.Message, senderUserID uint64, recipientIDs []uint64) error {
-	for _, recipientID := range recipientIDs {
-		deliverBody := DeliverPayloadFromModel(stored, senderUserID, recipientID)
-		payload, err := json.Marshal(deliverBody)
-		if err != nil {
-			return fmt.Errorf("marshal deliver payload: %w", err)
-		}
-		if err := s.MQ.SendMessage(ctx, DeliverTopic(recipientID), payload); err != nil {
-			return fmt.Errorf("publish deliver event for user %s: %w", FormatUserID(recipientID), err)
-		}
-		if err := s.markDeliveryPublished(ctx, stored.MessageID, recipientID); err != nil {
-			return fmt.Errorf("mark delivery published for user %s: %w", FormatUserID(recipientID), err)
-		}
-	}
-	return nil
-}
-
-// markDeliveryPublished records that the outbound MQ handoff succeeded so retries only target pending rows.
-// markDeliveryPublished 记录 MQ 出站已成功，使重试仅针对仍为 pending 的投递行。
-func (s *MessageService) markDeliveryPublished(ctx context.Context, messageID string, recipientUserID uint64) error {
-	now := time.Now().UTC()
-	result := s.DB.WithContext(ctx).
-		Model(&model.MessageDelivery{}).
-		Where(
-			"message_id = ? AND recipient_user_id = ? AND status = ?",
-			messageID,
-			recipientUserID,
-			model.DeliveryStatusPending,
-		).
-		Updates(map[string]any{
-			"status":       model.DeliveryStatusDelivered,
-			"delivered_at": now,
-		})
-	if result.Error != nil {
-		return result.Error
-	}
-	return nil
 }

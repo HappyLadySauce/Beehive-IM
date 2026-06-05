@@ -29,9 +29,15 @@ rabbitmq:
     virtual-host: /
     exchange: im.events
     queue: im.message.dispatch
+    instance-id: dev-instance
     prefetch: 64
     publish-timeout: 5s
     consume-concurrency: 4
+    publish-worker-concurrency: 2
+    publish-batch-size: 100
+    delivery-max-attempts: 5
+    presence-ttl: 90s
+    presence-heartbeat-interval: 30s
     reconnect-min-backoff: 1s
     reconnect-max-backoff: 30s
 
