@@ -429,17 +429,20 @@ type OAuthState struct {
 
 | 环境变量 | 说明 | 示例 |
 |----------|------|------|
-| `DB_DSN` | PostgreSQL 连接串 | `postgres://...@127.0.0.1:5432/Beehive-IM` |
+| `ETCD_ENDPOINTS` | etcd 端点（bootstrap，唯一允许纯 env 的配置） | `127.0.0.1:2379` |
+| `BEEHIVE_ENV` | 环境名 | `dev` |
+| `DB_DSN` | PostgreSQL 连接串（可迁 etcd `config/auth/db.dsn`） | `postgres://...@127.0.0.1:5432/Beehive-IM` |
 | `REDIS_ADDR` | Redis 地址 | `127.0.0.1:6379` |
-| `JWT_SECRET` | HS256 密钥 | 随机 32+ 字节 |
-| `JWT_ACCESS_TTL` | Access token 有效期 | `15m` |
-| `JWT_REFRESH_TTL` | Refresh token 有效期 | `720h` |
-| `GITHUB_CLIENT_ID` | GitHub OAuth App ID | — |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth App Secret | — |
-| `GITHUB_DEFAULT_SCOPE` | 默认 scope | `read:user user:email` |
-| `OAUTH_STATE_TTL` | Redis state TTL | `600s` |
+| `secrets/global/jwt.secret` | HS256 密钥（etcd，与 Edge/Gateway 共享） | 随机 32+ 字节 |
+| `config/global/jwt.access_ttl` | Access token 有效期 | `15m` |
+| `config/global/jwt.refresh_ttl` | Refresh token 有效期 | `720h` |
+| `secrets/auth/github.client_id` | GitHub OAuth App ID | — |
+| `secrets/auth/github.client_secret` | GitHub OAuth App Secret | — |
+| `config/auth/oauth.default_scope` | 默认 scope | `read:user user:email` |
+| `config/auth/oauth.state_ttl` | Redis state TTL | `600s` |
+| `RABBITMQ_URL` | RabbitMQ 连接串（领域事件，可选） | `amqp://guest:guest@127.0.0.1:5672/` |
 
-本地基础设施见 [`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)（PostgreSQL 16 + Redis 8）。
+etcd 与 Redis 分工见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)。本地基础设施见 [`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)（PostgreSQL、Redis、etcd、RabbitMQ）。
 
 ---
 
@@ -476,6 +479,7 @@ flowchart LR
     User[User Service]
     Msg[Message Service]
 
+    Auth -->|Lease 注册| Etcd[(etcd)]
     Auth -->|创建用户时写 users| PG[(PostgreSQL)]
     User -->|GetUser 读用户详情| PG
     Msg -->|验签 JWT| JWT[JWT 本地校验]
@@ -484,6 +488,8 @@ flowchart LR
 - **Auth** 在注册 / GitHub 新用户流程中写入 `users` / `user_profiles`
 - **User Service**（[`proto/user.proto`](../../proto/user.proto)）负责用户资料查询与后续更新，不处理认证
 - 下游服务从 gRPC metadata `authorization: Bearer {access_token}` 读取 JWT，**无需**每次 RPC 回调 Auth（除非要做实时 revoke 黑名单）
+- **Edge / Gateway** 在 WebSocket 接入阶段本地验签同一 JWT，详见 [`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)
+- **etcd / Redis / RabbitMQ** 职责见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)
 
 ---
 

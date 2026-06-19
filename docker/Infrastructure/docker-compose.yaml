@@ -40,6 +40,53 @@ services:
     networks:
       - beehive-network
 
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.16
+    container_name: beehive-etcd
+    restart: unless-stopped
+    command:
+      - /usr/local/bin/etcd
+      - --name=beehive-etcd
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd:2380
+      - --initial-cluster=beehive-etcd=http://etcd:2380
+      - --initial-cluster-token=beehive-etcd-cluster
+      - --initial-cluster-state=new
+    ports:
+      - "2379:2379"
+    volumes:
+      - ../../data/etcd:/etcd-data
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - beehive-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: beehive-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - ../../data/rabbitmq:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - beehive-network
+
 networks:
   beehive-network:
     driver: bridge
