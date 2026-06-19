@@ -1,0 +1,45 @@
+name: beehive-blog
+services:
+  postgresql:
+    image: postgres:16
+    container_name: beehive-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: Beehive-Blog
+      POSTGRES_PASSWORD: Beehive-Blog
+      POSTGRES_DB: Beehive-Blog
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - ../../data/postgres:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U Beehive-Blog -d Beehive-Blog"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - beehive-network
+
+  redis:
+    image: redis:8-alpine
+    container_name: beehive-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - ../../data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5  
+    networks:
+      - beehive-network
+
+networks:
+  beehive-network:
+    driver: bridge

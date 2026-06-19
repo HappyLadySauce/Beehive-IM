@@ -10,14 +10,26 @@ service AuthService {
     rpc Login(LoginRequest) returns (LoginResponse);
     rpc Logout(LogoutRequest) returns (LogoutResponse);
 
+    // Refresh access token using refresh_token
+    // 使用 refresh_token 刷新 access_token
+    rpc RefreshToken(RefreshTokenRequest) returns (LoginResponse);
+
     // --- Github OAuth2 authorization code flow / Github 授权登录 ---
     // Step1: client redirect to Github authorize_url
     // 第一步: 客户端重定向到 Github 授权页面
     rpc RedirectToGithubAuthorizeUrl(RedirectToGithubAuthorizeUrlRequest) returns (RedirectToGithubAuthorizeUrlResponse);
 
-    // Step2: client redirect to Github callback_url
-    // 第二步: 客户端重定向到 Github 回调页面
+    // Step2: client sends code from callback; server exchanges token and issues app session
+    // 第二步: 客户端提交回调 code，服务端换 token 并签发应用会话
     rpc GithubCallback(GithubCallbackRequest) returns (LoginResponse);
+
+    // Step 1 for logged-in user binding GitHub
+    // 已登录用户绑定 GitHub：第一步获取授权 URL
+    rpc LinkGitHub(LinkGitHubRequest) returns (RedirectToGithubAuthorizeUrlResponse);
+
+    // Unbind GitHub from current user
+    // 解绑当前用户的 GitHub 账号
+    rpc UnlinkGitHub(UnlinkGitHubRequest) returns (UnlinkGitHubResponse);
 }
 
 // ==================== Local account ====================
@@ -52,10 +64,15 @@ message LoginResponse {
     UserInfo user = 5;
 }
 
+message RefreshTokenRequest {
+    string refresh_token = 1;
+}
+
 message LogoutRequest {
     // pass access_token or refresh_token depending on your session model
     // 按会话模型传入 access_token 或 refresh_token
     string access_token = 1;
+    string refresh_token = 2;
 }
 
 message LogoutResponse {}
@@ -81,8 +98,8 @@ message RedirectToGithubAuthorizeUrlRequest {
 
 message RedirectToGithubAuthorizeUrlResponse {
     string authorize_url = 1;
-    // client must send this back in LoginWithGitHub for CSRF validation
-    // 客户端须在 LoginWithGitHub 中回传，用于 CSRF 校验
+    // client must send this back in GithubCallback for CSRF validation
+    // 客户端须在 GithubCallback 中回传，用于 CSRF 校验
     string state = 2;
     int64 expires_in = 3;       // state TTL in seconds / state 有效期（秒）
 }
@@ -92,3 +109,15 @@ message GithubCallbackRequest {
     string state = 2;           // must match the state from step 1
     string redirect_uri = 3;    // must match the one used in step 1
 }
+
+message LinkGitHubRequest {
+    string access_token = 1;
+    string redirect_uri = 2;
+    string scope = 3;
+}
+
+message UnlinkGitHubRequest {
+    string access_token = 1;
+}
+
+message UnlinkGitHubResponse {}
