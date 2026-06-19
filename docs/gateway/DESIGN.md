@@ -77,7 +77,7 @@ flowchart TB
 ### 2.1 与 Auth 模块的衔接
 
 - 登录、注册、刷新令牌仍走 [`proto/auth.proto`](../../proto/auth.proto) 的 Auth 服务，获取 `access_token`（JWT）
-- Edge 与 Gateway 共享 `JWT_SECRET`，**本地验签**，无需每次握手回调 Auth
+- Edge 与 Gateway 从 etcd `secrets/global/jwt.secret` 读取同一验签密钥，**本地验签**，无需每次握手回调 Auth；v1 密钥变更通过滚动重启生效
 - JWT 载荷约定见 [`docs/auth/DESIGN.md`](../auth/DESIGN.md) 第 4.1 节：`sub`（user_id）、`username`、`iat`、`exp`、`jti`
 
 ### 2.2 组件职责边界
@@ -346,9 +346,9 @@ Edge 通过 **Watch** 该前缀维护内存路由表，不缓存 `/v1/route` 结
 
 | Key | 类型 | TTL | 说明 |
 |-----|------|-----|------|
-| `conn:user:{user_id}` | HASH | 无 | `device_id` → `{gateway_id}:{conn_id}` |
-| `conn:gateway:{gateway_id}` | SET | 无 | 本 Gateway 上的 `conn_id` 集合 |
-| `conn:meta:{conn_id}` | HASH | 90s（ping 续期） | 连接元数据 |
+| `conn:user:{user_id}` | HASH | 无 | `device_id` → `{gateway_id}:{conn_id}`，只作为索引 |
+| `conn:gateway:{gateway_id}` | SET | 无 | 本 Gateway 上的 `conn_id` 集合，只作为索引 |
+| `conn:meta:{conn_id}` | HASH | 90s（ping 续期） | 连接元数据；在线判定以该 key 存在为准 |
 
 #### 字段定义
 
@@ -363,29 +363,29 @@ Edge 通过 **Watch** 该前缀维护内存路由表，不缓存 `/v1/route` 结
 
 ### 6.3 在线态写入（连接建立）
 
-```
-HSET conn:user:{user_id} {device_id} {gateway_id}:{conn_id}
-SADD conn:gateway:{gateway_id} {conn_id}
-HSET conn:meta:{conn_id} user_id ... device_id ... gateway_id ... connected_at ...
-EXPIRE conn:meta:{conn_id} 90
-```
+必须通过 Redis Lua 脚本原子完成：
+
+1. 读取同一 `user_id + device_id` 的旧连接路由。
+2. 写入新的 `device_id -> gateway_id:conn_id` 索引。
+3. 写入 `conn:gateway:{gateway_id}` 集合。
+4. 写入 `conn:meta:{conn_id}` 并设置 TTL。
+5. 返回旧连接路由，由 Gateway 关闭本实例旧连接；跨实例旧连接由 TTL 或后续 kick 事件清理。
 
 ### 6.4 在线态清理（连接断开）
 
-```
-HDEL conn:user:{user_id} {device_id}
-SREM conn:gateway:{gateway_id} {conn_id}
-DEL conn:meta:{conn_id}
-```
+必须通过 compare-and-delete Lua 脚本完成：只有 `conn:user:{user_id}` 中当前值仍等于 `{gateway_id}:{conn_id}` 时，才允许删除该 `device_id` 字段，避免同设备快速重连时旧连接误删新连接。
 
 ### 6.5 消息推送路由（RabbitMQ）
 
 Message 服务向在线用户推送时：
 
-1. `HGETALL conn:user:{user_id}` 获取所有设备连接（Redis）
-2. 按 `gateway_id` 分组 payload
-3. 向 RabbitMQ exchange `beehive.im.push` 发布，routing key `push.gateway.{gateway_id}`
-4. 目标 Gateway 从队列 `gateway.push.{gateway_id}` 消费，经本地 `conn_id` 写入 WebSocket
+1. `HGETALL conn:user:{user_id}` 获取候选设备连接（Redis）
+2. 批量校验 `conn:meta:{conn_id}` 存在且字段一致，过滤残留索引
+3. 按 `gateway_id` 分组 payload
+4. 向 RabbitMQ exchange `beehive.im.push` 发布在线推送通知，routing key `push.gateway.{gateway_id}`
+5. 目标 Gateway 从队列 `gateway.push.{gateway_id}` 消费，经本地 `conn_id` 写入 WebSocket
+
+RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；客户端重连后必须能通过 Message 服务按会话序号同步缺失消息。
 
 详见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md) 第 5 节。
 
@@ -452,7 +452,7 @@ Message 服务向在线用户推送时：
 |------|------------|------------|
 | 网络闪断 | 指数退避重连**原 ws_url**（最多 3 次） | Gateway 超时清理 Redis |
 | 原 Gateway 不可达 | 重新 `POST /v1/route` | Edge 可能分配到新 Gateway |
-| Gateway 宕机 | 重试 Edge 获新路由 | 心跳超时后移出 `gw:alive` |
+| Gateway 宕机 | 重试 Edge 获新路由 | etcd Lease 过期后服务注册 key 自动删除，Redis 残留在线态由 TTL 和清理任务修复 |
 | access_token 过期 | 握手 `401` → Auth `RefreshToken` → 重连 | — |
 | 一致性哈希环变化 | 仅新 `/v1/route` 受影响 | 已建立连接不变 |
 | 用户登出 | 关闭 WS + Auth `Logout` | Gateway 清理 Redis；revoke refresh token |
@@ -471,7 +471,7 @@ Message 服务向在线用户推送时：
 |----|------|
 | 传输 | 生产环境全链路 HTTPS / WSS |
 | Token 传递 | 优先 `Authorization` 头；避免 query token 落日志 |
-| 验签密钥 | 从 etcd `secrets/global/jwt.secret` 读取（Watch 热更新仅影响新连接） |
+| 验签密钥 | 从 etcd `secrets/global/jwt.secret` 读取；v1 不热更新，变更需滚动重启 |
 | 连接上限 | Gateway `max_conn` + Edge 分配前检查 `conn_count` |
 | 域名白名单 | `ws_url` 仅返回配置白名单内的域名 |
 | 踢重 | 防止同设备多连接导致消息重复推送 |
@@ -599,8 +599,9 @@ flowchart LR
     Gateway --> Etcd[(etcd)]
     Edge --> Etcd
     Gateway --> Redis[(Redis)]
-    Edge --> Redis
-    Msg -.->|push by conn route| Gateway
+    Msg --> Redis
+    Msg -.-> RMQ[(RabbitMQ)]
+    RMQ -.->|push notification| Gateway
     User --> PG[(PostgreSQL)]
 ```
 

@@ -1,13 +1,13 @@
-name: beehive-blog
+name: beehive-im
 services:
   postgresql:
     image: postgres:16
     container_name: beehive-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: Beehive-Blog
-      POSTGRES_PASSWORD: Beehive-Blog
-      POSTGRES_DB: Beehive-Blog
+      POSTGRES_USER: Beehive-IM
+      POSTGRES_PASSWORD: Beehive-IM
+      POSTGRES_DB: Beehive-IM
       TZ: Asia/Shanghai
       PGTZ: Asia/Shanghai
     ports:
@@ -16,7 +16,7 @@ services:
       - ../../data/postgres:/var/lib/postgresql/data
       - ./init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U Beehive-Blog -d Beehive-Blog"]
+      test: ["CMD-SHELL", "pg_isready -U Beehive-IM -d Beehive-IM"]
       interval: 10s
       timeout: 5s
       retries: 5
