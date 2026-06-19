@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package beehive_im.auth;
+
+option go_package = "./services/auth/pb";
+
+service AuthService {
+    // --- Local account / 本地账号登录 ---
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    rpc Login(LoginRequest) returns (LoginResponse);
+    rpc Logout(LogoutRequest) returns (LogoutResponse);
+
+    // --- Github OAuth2 authorization code flow / Github 授权登录 ---
+    // Step1: client redirect to Github authorize_url
+    // 第一步: 客户端重定向到 Github 授权页面
+    rpc RedirectToGithubAuthorizeUrl(RedirectToGithubAuthorizeUrlRequest) returns (RedirectToGithubAuthorizeUrlResponse);
+
+    // Step2: client redirect to Github callback_url
+    // 第二步: 客户端重定向到 Github 回调页面
+    rpc GithubCallback(GithubCallbackRequest) returns (LoginResponse);
+}
+
+// ==================== Local account ====================
+
+message RegisterRequest {
+    string username = 1;
+    string email = 2;
+    string phone = 3;
+    string password = 4;
+}
+
+message RegisterResponse {
+    string access_token = 1;
+    string refresh_token = 2;
+    int64 expires_in = 3;       // seconds / 秒
+    string token_type = 4;      // e.g. "Bearer"
+    UserInfo user = 5;
+}
+
+message LoginRequest {
+    // account can be username, email, or phone
+    // account 可以是用户名、邮箱或手机号
+    string account = 1;
+    string password = 2;
+}
+
+message LoginResponse {
+    string access_token = 1;
+    string refresh_token = 2;
+    int64 expires_in = 3;       // seconds / 秒
+    string token_type = 4;      // e.g. "Bearer"
+    UserInfo user = 5;
+}
+
+message LogoutRequest {
+    // pass access_token or refresh_token depending on your session model
+    // 按会话模型传入 access_token 或 refresh_token
+    string access_token = 1;
+}
+
+message LogoutResponse {}
+
+message UserInfo {
+    string id = 1;
+    string username = 2;
+    string email = 3;
+    string avatar = 4;
+}
+
+// ==================== GitHub OAuth2 ====================
+
+message RedirectToGithubAuthorizeUrlRequest {
+    // must match a callback URL registered in the GitHub OAuth App
+    // 必须与 GitHub OAuth App 中注册的回调地址一致
+    string redirect_uri = 1;
+
+    // optional; defaults to server config e.g. "read:user user:email"
+    // 可选；默认使用服务端配置，如 "read:user user:email"
+    string scope = 2;
+}
+
+message RedirectToGithubAuthorizeUrlResponse {
+    string authorize_url = 1;
+    // client must send this back in LoginWithGitHub for CSRF validation
+    // 客户端须在 LoginWithGitHub 中回传，用于 CSRF 校验
+    string state = 2;
+    int64 expires_in = 3;       // state TTL in seconds / state 有效期（秒）
+}
+
+message GithubCallbackRequest {
+    string code = 1;            // authorization code from GitHub callback
+    string state = 2;           // must match the state from step 1
+    string redirect_uri = 3;    // must match the one used in step 1
+}
