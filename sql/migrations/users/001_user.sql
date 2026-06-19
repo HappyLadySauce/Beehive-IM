@@ -1,3 +1,12 @@
+-- 创建一个更新 updated_at 的通用函数
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Users table: supports local registration and OAuth-only accounts.
 -- 用户表：支持本地注册与纯 OAuth 账号。
 
@@ -12,17 +21,26 @@ CREATE TABLE IF NOT EXISTS users (
     deleted_at      TIMESTAMPTZ
 );
 
+-- 创建 username 唯一索引
 CREATE UNIQUE INDEX IF NOT EXISTS uk_users_username
     ON users (username)
     WHERE deleted_at IS NULL;
 
+-- 创建 email 唯一索引
 CREATE UNIQUE INDEX IF NOT EXISTS uk_users_email
     ON users (email)
     WHERE deleted_at IS NULL AND email IS NOT NULL;
 
+-- 创建 phone 唯一索引
 CREATE UNIQUE INDEX IF NOT EXISTS uk_users_phone
     ON users (phone)
     WHERE deleted_at IS NULL AND phone IS NOT NULL;
+
+-- 创建 updated_at 触发器
+CREATE TRIGGER trigger_users_updated_at
+BEFORE UPDATE ON users
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 
 COMMENT ON TABLE users IS '用户信息表';
 COMMENT ON COLUMN users.id IS '用户ID';
@@ -51,6 +69,12 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at      TIMESTAMPTZ
 );
+
+-- 创建 updated_at 触发器
+CREATE TRIGGER trigger_user_profiles_updated_at
+BEFORE UPDATE ON user_profiles
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 
 COMMENT ON TABLE user_profiles IS '用户详情表';
 COMMENT ON COLUMN user_profiles.user_id IS '用户ID';
