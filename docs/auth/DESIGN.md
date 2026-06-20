@@ -1,8 +1,8 @@
 # Beehive-IM 认证模块设计文档
 
-> 版本：v1.0  
-> 适用范围：Auth 服务（gRPC）、本地账号登录、GitHub OAuth2 授权码模式  
-> 关联文件：[`proto/auth.proto`](../../proto/auth.proto)、[`sql/migrations/users/001_user.sql`](../../sql/migrations/users/001_user.sql)、[`sql/migrations/auth/002_auth.sql`](../../sql/migrations/auth/002_auth.sql)
+> 版本：v1.2
+> 适用范围：Auth 内网 gRPC 服务、公网认证入口代理、本地账号登录、GitHub OAuth2 授权码模式
+> 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)、[`proto/auth.proto`](../../proto/auth.proto)、[`sql/migrations/users/001_user.sql`](../../sql/migrations/users/001_user.sql)、[`sql/migrations/auth/002_auth.sql`](../../sql/migrations/auth/002_auth.sql)
 
 ---
 
@@ -35,7 +35,11 @@ flowchart TB
         Mobile[Mobile]
     end
 
-    subgraph gateway [API Layer]
+    subgraph public_api [Public API Layer]
+        Edge[Edge / API Gateway]
+    end
+
+    subgraph internal_api [Internal Service Layer]
         GRPC[gRPC AuthService]
     end
 
@@ -56,7 +60,8 @@ flowchart TB
         GitHub[GitHub OAuth API]
     end
 
-    clients --> GRPC
+    clients --> Edge
+    Edge --> GRPC
     GRPC --> Handler
     Handler --> LocalAuth
     Handler --> OAuthFlow
@@ -69,7 +74,18 @@ flowchart TB
     StateStore --> Redis
 ```
 
-### 2.1 存储职责划分
+### 2.1 暴露边界
+
+| 接口 | 暴露范围 | 说明 |
+|------|----------|------|
+| `/v1/auth/*` HTTP | 公网，经 Edge/API Gateway 暴露 | 客户端登录、注册、刷新令牌、OAuth callback 入口 |
+| Auth gRPC | 内网 | 只允许 Edge/API Gateway/BFF 和内部服务访问 |
+| GitHub OAuth callback | 公网，经 Edge/API Gateway 暴露 | 回调请求进入公网入口后转发到 Auth |
+| PostgreSQL / Redis | 内网 | 仅 Auth 服务账号访问 |
+
+生产环境不允许客户端直接访问 Auth gRPC 地址。公网认证入口必须承担 TLS、限流、请求体大小限制、基础审计和错误脱敏；Auth 服务继续承担认证业务校验和令牌签发。
+
+### 2.2 存储职责划分
 
 | 数据 | 存储 | 说明 |
 |------|------|------|
@@ -457,7 +473,9 @@ etcd 与 Redis 分工见 [`docs/infrastructure/infrastructure.md`](../infrastruc
 | refresh token | 仅存哈希；轮换时撤销旧 token |
 | 错误信息 | 登录失败不区分「用户不存在」与「密码错误」 |
 | Unlink | 无密码且唯一 OAuth 来源时禁止解绑 |
-| 传输 | 生产环境全链路 HTTPS |
+| 公网暴露 | 只暴露 Edge/API Gateway 上的 `/v1/auth/*`，Auth gRPC 仅内网访问 |
+| 传输 | 公网 HTTPS；内部 gRPC 使用 mTLS 或受控内网 ACL |
+| 限流 | 公网入口和 Auth 服务均需对登录、刷新、OAuth callback 做限流 |
 
 ### 9.1 gRPC 错误码映射（建议）
 
@@ -475,10 +493,14 @@ etcd 与 Redis 分工见 [`docs/infrastructure/infrastructure.md`](../infrastruc
 
 ```mermaid
 flowchart LR
+    Client[Client]
+    Edge[Edge / API Gateway]
     Auth[Auth Service]
     User[User Service]
     Msg[Message Service]
 
+    Client -->|/v1/auth/*| Edge
+    Edge -->|internal gRPC| Auth
     Auth -->|Lease 注册| Etcd[(etcd)]
     Auth -->|创建用户时写 users| PG[(PostgreSQL)]
     User -->|GetUser 读用户详情| PG
@@ -486,9 +508,11 @@ flowchart LR
 ```
 
 - **Auth** 在注册 / GitHub 新用户流程中写入 `users` / `user_profiles`
+- **Edge / API Gateway** 承载公网 `/v1/auth/*` 和 OAuth callback，转发到内网 Auth gRPC
 - **User Service**（[`proto/user.proto`](../../proto/user.proto)）负责用户资料查询与后续更新，不处理认证
+- **Presence / Notification** 不直接回调 Auth；它们只使用 Edge、Message、Conversation 已校验链路传递的用户 ID 和服务身份
 - 下游服务从 gRPC metadata `authorization: Bearer {access_token}` 读取 JWT，**无需**每次 RPC 回调 Auth（除非要做实时 revoke 黑名单）
-- **Edge / Gateway** 在 WebSocket 接入阶段本地验签同一 JWT，详见 [`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)
+- **Edge** 在公网 WebSocket 接入阶段本地验签 JWT；**Gateway** 校验 Edge 内部 auth context，详见 [`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)
 - **etcd / Redis / RabbitMQ** 职责见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)
 
 ---
