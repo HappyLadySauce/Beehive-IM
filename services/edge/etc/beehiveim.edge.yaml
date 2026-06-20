@@ -1,0 +1,14 @@
+Name: beehiveim.edge.api
+Host: 0.0.0.0
+Port: 8888
+EdgeID: edge-dev
+Ticket:
+  TTLSeconds: 30
+WebSocket:
+  WriteBufferSize: 64
+  ReadLimitBytes: 65536
+Gateway:
+  Endpoints:
+  - 127.0.0.1:9100
+  NonBlock: true
+  Timeout: 2000

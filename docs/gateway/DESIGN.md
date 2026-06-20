@@ -2,7 +2,7 @@
 
 > 版本：v1.2
 > 适用范围：Edge 公网 WebSocket 代理入口、Gateway 内网上游会话节点、连接恢复、在线态与下行推送
-> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`proto/auth.proto`](../../proto/auth.proto)
+> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`api/edge.api`](../../api/edge.api)、[`proto/gateway.proto`](../../proto/gateway.proto)、[`proto/auth.proto`](../../proto/auth.proto)
 
 ---
 
@@ -44,7 +44,23 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | 在线态归属 | Edge 是客户端 WebSocket 连接拥有者；Presence 是在线态服务边界和 Redis key 拥有者 |
 | 认证位置 | Edge 入口验签，Gateway 对 Edge 传递的 auth context 做零信任校验 |
 
-### 1.4 关键约束
+### 1.4 当前 MVP 实现状态
+
+当前代码已落地第一版接入层闭环，目标是验证 WebSocket 接入、Edge 代理、Gateway 会话与实时帧通道，不等同于完整生产能力：
+
+| 能力 | 当前状态 |
+|------|----------|
+| Edge HTTP API | 已通过 `api/edge.api` 生成 `services/edge`，提供 `GET /healthz`、`POST /v1/ws/ticket`、`GET /ws` |
+| WebSocket ticket | Edge 本地内存存储，TTL 默认 30s，单次消费，绑定 `user_id`、`device_id`、`session_id`、Origin |
+| 开发鉴权 | `POST /v1/ws/ticket` 暂用 `X-Debug-User-Id` 生成 ticket，后续替换为 Auth/JWT 校验 |
+| Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
+| Edge -> Gateway | 已采用 gRPC bidirectional stream 转发 JSON WebSocket 信封 |
+| Gateway 会话 | 当前为内存 session manager，支持 attach、resume、close、容量限制和 ping/pong/echo 验证帧 |
+| Presence | Edge 已抽象 `PresenceClient` 调用点，当前默认 noop，不写 Redis |
+| Gateway 选择 | 当前使用配置中的单个 zRPC target，后续替换为 etcd watch + router |
+| Message/Conversation/Notification | 本轮未联调，业务帧暂由 Gateway echo 验证接入链路 |
+
+### 1.5 关键约束
 
 - Edge 故障时客户端仍必须重连，因为客户端 TCP/WebSocket 连接终止在 Edge。
 - Gateway 故障时 Edge 可以屏蔽大部分客户端重连，但必须依赖 `session_id`、`last_seq` 和 Message 同步接口补偿缺失消息。
@@ -84,7 +100,7 @@ flowchart TB
 
     Client -->|"1 Login HTTP via public API"| Edge1
     Edge1 -->|"proxy /v1/auth/*"| Auth
-    Client -->|"2 WSS /ws + JWT"| Edge1
+    Client -->|"2 WSS /ws + ticket"| Edge1
     Edge1 -->|"3 internal stream"| GW2
     Edge1 --> Etcd
     GW2 --> Etcd

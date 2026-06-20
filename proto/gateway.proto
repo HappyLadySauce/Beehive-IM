@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package beehive_im.gateway;
+
+option go_package = "./pb";
+
+service GatewayService {
+    // Attach creates an upstream session for an Edge connection.
+    // Attach 为 Edge 连接创建上游会话。
+    rpc Attach(AttachRequest) returns (AttachResponse);
+
+    // Resume rebuilds an upstream session after Edge rebind.
+    // Resume 在 Edge 切换上游后重建上游会话。
+    rpc Resume(ResumeRequest) returns (ResumeResponse);
+
+    // CloseSession closes an upstream session owned by Edge.
+    // CloseSession 关闭 Edge 持有的上游会话。
+    rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+
+    // Stream proxies realtime frames between Edge and Gateway.
+    // Stream 在 Edge 和 Gateway 之间代理实时帧。
+    rpc Stream(stream GatewayFrame) returns (stream GatewayFrame);
+}
+
+message AttachRequest {
+    string session_id = 1;
+    string conn_id = 2;
+    string edge_id = 3;
+    string user_id = 4;
+    string device_id = 5;
+    string jti = 6;
+    int64 last_client_seq = 7;
+    int64 last_delivered_seq = 8;
+}
+
+message AttachResponse {
+    bool accepted = 1;
+    string gateway_id = 2;
+    string error_code = 3;
+    string message = 4;
+}
+
+message ResumeRequest {
+    string session_id = 1;
+    string conn_id = 2;
+    string edge_id = 3;
+    string user_id = 4;
+    string device_id = 5;
+    int64 last_client_seq = 6;
+    int64 last_delivered_seq = 7;
+}
+
+message ResumeResponse {
+    bool accepted = 1;
+    string gateway_id = 2;
+    int64 last_delivered_seq = 3;
+    string error_code = 4;
+    string message = 5;
+}
+
+message CloseSessionRequest {
+    string session_id = 1;
+    string conn_id = 2;
+    string edge_id = 3;
+    string reason = 4;
+}
+
+message CloseSessionResponse {
+    bool closed = 1;
+}
+
+message GatewayFrame {
+    string session_id = 1;
+    string conn_id = 2;
+    string frame_type = 3;
+    string payload_json = 4;
+    int64 client_seq = 5;
+    int64 server_seq = 6;
+}

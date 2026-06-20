@@ -1,0 +1,35 @@
+syntax = "v1"
+
+info (
+	title:  "Beehive-IM Edge API"
+	desc:   "Public WebSocket edge API for Beehive-IM"
+	author: "Beehive-IM"
+)
+
+type TicketRequest {
+	DeviceId  string `json:"device_id,optional"`
+	SessionId string `json:"session_id,optional"`
+}
+
+type TicketResponse {
+	Ticket    string `json:"ticket"`
+	ExpiresIn int64  `json:"expires_in"`
+	SessionId string `json:"session_id"`
+	DeviceId  string `json:"device_id"`
+}
+
+type HealthResponse {
+	Status string `json:"status"`
+}
+
+service edge-api {
+	@handler healthz
+	get /healthz returns (HealthResponse)
+
+	@handler createWsTicket
+	post /v1/ws/ticket (TicketRequest) returns (TicketResponse)
+
+	@handler websocket
+	get /ws
+}
+

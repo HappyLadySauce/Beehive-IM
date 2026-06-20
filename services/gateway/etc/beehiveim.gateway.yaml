@@ -1,0 +1,4 @@
+Name: beehiveim.gateway.rpc
+ListenOn: 0.0.0.0:9100
+GatewayID: gateway-dev
+MaxSessions: 20000

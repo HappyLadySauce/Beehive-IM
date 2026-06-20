@@ -128,12 +128,23 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 }
 ```
 
-ticket 要求：
+生产 ticket 要求：
 
 - TTL 默认 30s，最多 60s。
 - 单次使用，消费后立即失效。
 - 绑定 `user_id`、`device_id`、`session_id`、origin 和 user-agent hash。
 - ticket 可放入 WebSocket query；JWT/access token 禁止放入 query。
+
+当前 MVP 实现状态：
+
+| 能力 | 当前状态 |
+|------|----------|
+| 签发入口 | `POST /v1/ws/ticket` 已在 Edge 服务实现 |
+| Web 端连接 | `GET /ws?ticket=...` 已在 Edge 服务实现 WebSocket upgrade |
+| ticket 存储 | 当前为 Edge 进程内内存 store，只适合单 Edge 本地开发 |
+| 鉴权来源 | 当前暂用 `X-Debug-User-Id` 开发头，后续替换为 Auth/JWT |
+| 绑定字段 | 当前绑定 `user_id`、`device_id`、`session_id`、Origin；user-agent hash 后续补齐 |
+| 消息同步 | 本轮未接入 Message，同步/补偿协议仍按本文后续章节实现 |
 
 ### 3.2 内部 gRPC API
 
