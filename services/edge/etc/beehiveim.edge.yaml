@@ -1,7 +1,10 @@
 Name: beehiveim.edge.api
 Host: 0.0.0.0
 Port: 8888
+Env: dev
+RegistryPrefix: /beehive-im
 EdgeID: edge-dev
+PresenceTTLSeconds: 90
 Ticket:
   TTLSeconds: 30
 WebSocket:
@@ -12,3 +15,17 @@ Gateway:
   - 127.0.0.1:9100
   NonBlock: true
   Timeout: 2000
+Presence:
+  Endpoints:
+  - 127.0.0.1:9200
+  NonBlock: true
+  Timeout: 2000
+Registry:
+  Endpoints:
+  - 127.0.0.1:2379
+  Prefix: /beehive-im
+  Env: dev
+RabbitMQ:
+  URL: ""
+  Exchange: beehive.im.push
+  Prefetch: 64

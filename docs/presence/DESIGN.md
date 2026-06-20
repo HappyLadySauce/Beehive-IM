@@ -10,6 +10,18 @@
 
 Presence 服务负责 IM 在线态事实的服务化边界。Edge 仍然拥有客户端 WebSocket 连接，但所有在线态写入、续期、断开清理、Gateway rebind 路由更新和在线路由查询都必须通过 Presence API 完成。
 
+### 1.0 当前实现状态
+
+当前已落地第一版 Presence zRPC 服务，目标是支撑 Edge/Gateway 接入闭环：
+
+| 能力 | 当前状态 |
+|------|----------|
+| 服务骨架 | 已通过 `proto/presence.proto` 生成 `services/presence` |
+| Redis 写入 | 已实现 `conn:user:{user_id}`、`conn:edge:{edge_id}`、`conn:meta:{conn_id}`、`session:route:{session_id}` |
+| Edge 接入 | Edge WebSocket 建连时调用 `UpsertConnection`，断开时调用 `RemoveConnection` |
+| 查询与清理 | 已实现 `GetLiveRoutes`、`RefreshConnection`、`RebindGateway`、`CleanupEdge` 的最小版本 |
+| 未完成项 | Lua 脚本、批量心跳、指标、在线事件发布和 mTLS 鉴权后续补齐 |
+
 ### 1.1 职责
 
 | 职责 | 说明 |

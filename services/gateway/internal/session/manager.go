@@ -165,6 +165,13 @@ func (m *Manager) Exists(sessionID string) bool {
 	return ok
 }
 
+func (m *Manager) Count() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return len(m.sessions)
+}
+
 func (m *Manager) NextServerSeq(sessionID string) (int64, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

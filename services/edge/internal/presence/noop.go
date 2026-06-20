@@ -1,6 +1,13 @@
 package presence
 
-import "context"
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/HappyLadySauce/Beehive-IM/services/presence/presenceservice"
+)
 
 // ConnectionMeta carries Edge-owned connection state for Presence.
 // ConnectionMeta 携带 Edge 拥有的连接状态。
@@ -33,5 +40,74 @@ func (NoopClient) UpsertConnection(ctx context.Context, conn ConnectionMeta) err
 }
 
 func (NoopClient) RemoveConnection(ctx context.Context, conn ConnectionMeta) error {
+	return nil
+}
+
+// RPCClient calls the Presence zRPC service.
+// RPCClient 调用 Presence zRPC 服务。
+type RPCClient struct {
+	client     presenceservice.PresenceService
+	ttlSeconds int64
+	timeout    time.Duration
+}
+
+func NewRPCClient(client presenceservice.PresenceService, ttlSeconds int64) *RPCClient {
+	if ttlSeconds <= 0 {
+		ttlSeconds = 90
+	}
+	return &RPCClient{
+		client:     client,
+		ttlSeconds: ttlSeconds,
+		timeout:    2 * time.Second,
+	}
+}
+
+func (c *RPCClient) UpsertConnection(ctx context.Context, conn ConnectionMeta) error {
+	if c == nil || c.client == nil {
+		return errors.New("presence client is unavailable")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.client.UpsertConnection(callCtx, &presenceservice.UpsertConnectionRequest{
+		Connection: &presenceservice.ConnectionMeta{
+			SessionId: conn.SessionID,
+			ConnId:    conn.ConnID,
+			EdgeId:    conn.EdgeID,
+			UserId:    conn.UserID,
+			DeviceId:  conn.DeviceID,
+			GatewayId: conn.GatewayID,
+		},
+		TtlSeconds: c.ttlSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("presence upsert rpc: %w", err)
+	}
+	if !resp.GetAccepted() {
+		return fmt.Errorf("presence upsert rejected: %s %s", resp.GetErrorCode(), resp.GetMessage())
+	}
+	return nil
+}
+
+func (c *RPCClient) RemoveConnection(ctx context.Context, conn ConnectionMeta) error {
+	if c == nil || c.client == nil {
+		return errors.New("presence client is unavailable")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	_, err := c.client.RemoveConnection(callCtx, &presenceservice.RemoveConnectionRequest{
+		Connection: &presenceservice.ConnectionMeta{
+			SessionId: conn.SessionID,
+			ConnId:    conn.ConnID,
+			EdgeId:    conn.EdgeID,
+			UserId:    conn.UserID,
+			DeviceId:  conn.DeviceID,
+			GatewayId: conn.GatewayID,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("presence remove rpc: %w", err)
+	}
 	return nil
 }

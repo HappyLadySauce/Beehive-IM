@@ -29,8 +29,9 @@ type Proxy struct {
 	writeBufferSize int
 	readLimitBytes  int64
 	tickets         *ticket.Store
-	gateway         gatewayservice.GatewayService
+	gatewayRouter   GatewayRouter
 	presence        presence.Client
+	hub             *Hub
 	upgrader        websocket.Upgrader
 }
 
@@ -40,7 +41,12 @@ type Config struct {
 	ReadLimitBytes  int64
 	Tickets         *ticket.Store
 	Gateway         gatewayservice.GatewayService
+	GatewayRouter   GatewayRouter
 	Presence        presence.Client
+}
+
+type GatewayRouter interface {
+	Pick(ctx context.Context) (gatewayservice.GatewayService, string, error)
 }
 
 type clientEnvelope struct {
@@ -65,14 +71,18 @@ func NewProxy(c Config) *Proxy {
 	if c.Presence == nil {
 		c.Presence = presence.NewNoopClient()
 	}
+	if c.GatewayRouter == nil && c.Gateway != nil {
+		c.GatewayRouter = staticGatewayRouter{gateway: c.Gateway}
+	}
 
 	return &Proxy{
 		edgeID:          c.EdgeID,
 		writeBufferSize: c.WriteBufferSize,
 		readLimitBytes:  c.ReadLimitBytes,
 		tickets:         c.Tickets,
-		gateway:         c.Gateway,
+		gatewayRouter:   c.GatewayRouter,
 		presence:        c.Presence,
+		hub:             NewHub(),
 		upgrader: websocket.Upgrader{
 			Subprotocols: []string{"beehive.im.v1"},
 			CheckOrigin: func(r *http.Request) bool {
@@ -90,12 +100,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	connID := "conn-" + randomToken(12)
-	if p.gateway == nil {
+	if p.gatewayRouter == nil {
 		http.Error(w, "Gateway client is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
-	attach, err := p.attach(r.Context(), t, connID)
+	gateway, selectedGatewayID, err := p.gatewayRouter.Pick(r.Context())
+	if err != nil {
+		http.Error(w, "Gateway selection failed", http.StatusServiceUnavailable)
+		return
+	}
+	attach, err := p.attach(r.Context(), gateway, t, connID)
 	if err != nil {
 		http.Error(w, "Gateway attach failed", http.StatusServiceUnavailable)
 		return
@@ -111,20 +126,20 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		EdgeID:    p.edgeID,
 		UserID:    t.UserID,
 		DeviceID:  t.DeviceID,
-		GatewayID: attach.GetGatewayId(),
+		GatewayID: gatewayID(attach.GetGatewayId(), selectedGatewayID),
 	}); err != nil {
-		p.closeGatewaySession(t, connID, "presence_upsert_failed")
+		p.closeGatewaySession(gateway, t, connID, "presence_upsert_failed")
 		http.Error(w, "Presence upsert failed", http.StatusServiceUnavailable)
 		return
 	}
 
 	ws, err := p.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		p.cleanup(t, connID)
+		p.cleanup(gateway, t, connID)
 		return
 	}
 	defer ws.Close()
-	defer p.cleanup(t, connID)
+	defer p.cleanup(gateway, t, connID)
 
 	ws.SetReadLimit(p.readLimitBytes)
 	if err := writeJSON(ws, map[string]any{
@@ -133,7 +148,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"session_id": t.SessionID,
 			"conn_id":    connID,
 			"edge_id":    p.edgeID,
-			"gateway_id": attach.GetGatewayId(),
+			"gateway_id": gatewayID(attach.GetGatewayId(), selectedGatewayID),
 		},
 	}); err != nil {
 		return
@@ -142,7 +157,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
-	stream, err := p.gateway.Stream(ctx)
+	stream, err := gateway.Stream(ctx)
 	if err != nil {
 		_ = writeClose(ws, "Gateway stream failed")
 		return
@@ -151,6 +166,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	outbound := make(chan []byte, p.writeBufferSize)
 	errCh := make(chan error, 3)
+	p.hub.Register(connID, t.SessionID, outbound)
+	defer p.hub.Unregister(connID, t.SessionID)
 
 	go p.readWebSocket(ctx, ws, stream, t, connID, errCh)
 	go p.readGateway(ctx, stream, outbound, errCh)
@@ -163,11 +180,15 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (p *Proxy) attach(ctx context.Context, t ticket.Ticket, connID string) (*gatewayservice.AttachResponse, error) {
+func (p *Proxy) Deliver(ctx context.Context, target PushTarget, payload []byte) bool {
+	return p.hub.Deliver(ctx, target, payload)
+}
+
+func (p *Proxy) attach(ctx context.Context, gateway gatewayservice.GatewayService, t ticket.Ticket, connID string) (*gatewayservice.AttachResponse, error) {
 	attachCtx, cancel := context.WithTimeout(ctx, attachTimeout)
 	defer cancel()
 
-	return p.gateway.Attach(attachCtx, &gatewayservice.AttachRequest{
+	return gateway.Attach(attachCtx, &gatewayservice.AttachRequest{
 		SessionId: t.SessionID,
 		ConnId:    connID,
 		EdgeId:    p.edgeID,
@@ -176,8 +197,8 @@ func (p *Proxy) attach(ctx context.Context, t ticket.Ticket, connID string) (*ga
 	})
 }
 
-func (p *Proxy) cleanup(t ticket.Ticket, connID string) {
-	p.closeGatewaySession(t, connID, "edge_websocket_closed")
+func (p *Proxy) cleanup(gateway gatewayservice.GatewayService, t ticket.Ticket, connID string) {
+	p.closeGatewaySession(gateway, t, connID, "edge_websocket_closed")
 	ctx, cancel := context.WithTimeout(context.Background(), attachTimeout)
 	defer cancel()
 
@@ -190,16 +211,18 @@ func (p *Proxy) cleanup(t ticket.Ticket, connID string) {
 	})
 }
 
-func (p *Proxy) closeGatewaySession(t ticket.Ticket, connID string, reason string) {
+func (p *Proxy) closeGatewaySession(gateway gatewayservice.GatewayService, t ticket.Ticket, connID string, reason string) {
 	ctx, cancel := context.WithTimeout(context.Background(), attachTimeout)
 	defer cancel()
 
-	_, _ = p.gateway.CloseSession(ctx, &gatewayservice.CloseSessionRequest{
-		SessionId: t.SessionID,
-		ConnId:    connID,
-		EdgeId:    p.edgeID,
-		Reason:    reason,
-	})
+	if gateway != nil {
+		_, _ = gateway.CloseSession(ctx, &gatewayservice.CloseSessionRequest{
+			SessionId: t.SessionID,
+			ConnId:    connID,
+			EdgeId:    p.edgeID,
+			Reason:    reason,
+		})
+	}
 }
 
 func (p *Proxy) readWebSocket(ctx context.Context, ws *websocket.Conn, stream pb.GatewayService_StreamClient, t ticket.Ticket, connID string, errCh chan<- error) {
@@ -303,4 +326,22 @@ func randomToken(size int) string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
+type staticGatewayRouter struct {
+	gateway gatewayservice.GatewayService
+}
+
+func (r staticGatewayRouter) Pick(ctx context.Context) (gatewayservice.GatewayService, string, error) {
+	if r.gateway == nil {
+		return nil, "", errors.New("gateway client is unavailable")
+	}
+	return r.gateway, "", nil
+}
+
+func gatewayID(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
 }

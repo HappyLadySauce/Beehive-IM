@@ -56,9 +56,11 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
 | Edge -> Gateway | 已采用 gRPC bidirectional stream 转发 JSON WebSocket 信封 |
 | Gateway 会话 | 当前为内存 session manager，支持 attach、resume、close、容量限制和 ping/pong/echo 验证帧 |
-| Presence | Edge 已抽象 `PresenceClient` 调用点，当前默认 noop，不写 Redis |
-| Gateway 选择 | 当前使用配置中的单个 zRPC target，后续替换为 etcd watch + router |
-| Message/Conversation/Notification | 本轮未联调，业务帧暂由 Gateway echo 验证接入链路 |
+| Presence | 已生成 `services/presence`，Edge 通过 zRPC 调用 Presence，在线态写入 Redis |
+| Gateway 选择 | Gateway 注册到 etcd，Edge watch `/beehive-im/{env}/services/gateway/` 并回退静态 Gateway endpoint |
+| RabbitMQ push | Edge 已有 `edge.push.{edge_id}` consumer 骨架，可按 `conn_id` 或 `session_id` 写入本机 WebSocket |
+| User PostgreSQL | User 服务已接 PostgreSQL，`GetUser` 从 `users` / `user_profiles` 读取 |
+| Message/Conversation/Notification | 本轮未实现完整业务联调，业务帧暂由 Gateway echo 验证接入链路 |
 
 ### 1.5 关键约束
 

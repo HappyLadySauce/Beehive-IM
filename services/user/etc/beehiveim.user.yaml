@@ -1,5 +1,10 @@
 Name: beehiveim.user.rpc
-ListenOn: 0.0.0.0:8080
+ListenOn: 0.0.0.0:9001
+Env: dev
+Postgres:
+  DSN: postgres://Beehive-IM:Beehive-IM@127.0.0.1:5432/Beehive-IM?sslmode=disable
+  MaxConns: 20
+  MinConns: 2
 Etcd:
   Hosts:
   - 127.0.0.1:2379

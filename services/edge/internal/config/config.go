@@ -4,16 +4,24 @@
 package config
 
 import (
+	pkgetcd "github.com/HappyLadySauce/Beehive-IM/pkg/etcd"
+	pkgrabbitmq "github.com/HappyLadySauce/Beehive-IM/pkg/rabbitmq"
 	"github.com/zeromicro/go-zero/rest"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
 type Config struct {
 	rest.RestConf
-	EdgeID    string `json:",default=edge-dev"`
-	Ticket    TicketConf
-	WebSocket WebSocketConf
-	Gateway   zrpc.RpcClientConf
+	Env                string `json:",default=dev"`
+	RegistryPrefix     string `json:",default=/beehive-im"`
+	EdgeID             string `json:",default=edge-dev"`
+	PresenceTTLSeconds int64  `json:",default=90"`
+	Ticket             TicketConf
+	WebSocket          WebSocketConf
+	Gateway            zrpc.RpcClientConf
+	Presence           zrpc.RpcClientConf
+	Registry           pkgetcd.Config
+	RabbitMQ           pkgrabbitmq.Config
 }
 
 type TicketConf struct {

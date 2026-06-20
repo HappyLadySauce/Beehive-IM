@@ -1,0 +1,105 @@
+syntax = "proto3";
+
+package beehive_im.presence;
+
+option go_package = "./pb";
+
+service PresenceService {
+    // UpsertConnection registers or replaces an online connection.
+    // UpsertConnection 注册或覆盖一个在线连接。
+    rpc UpsertConnection(UpsertConnectionRequest) returns (UpsertConnectionResponse);
+
+    // RefreshConnection refreshes online connection TTL.
+    // RefreshConnection 续期在线连接 TTL。
+    rpc RefreshConnection(RefreshConnectionRequest) returns (RefreshConnectionResponse);
+
+    // RebindGateway updates the current upstream gateway route.
+    // RebindGateway 更新当前上游 Gateway 路由。
+    rpc RebindGateway(RebindGatewayRequest) returns (RebindGatewayResponse);
+
+    // RemoveConnection removes an online connection if ownership still matches.
+    // RemoveConnection 在归属仍匹配时移除在线连接。
+    rpc RemoveConnection(RemoveConnectionRequest) returns (RemoveConnectionResponse);
+
+    // GetLiveRoutes returns live routes for one user.
+    // GetLiveRoutes 返回单个用户的在线路由。
+    rpc GetLiveRoutes(GetLiveRoutesRequest) returns (GetLiveRoutesResponse);
+
+    // CleanupEdge removes stale routes owned by one edge.
+    // CleanupEdge 清理某个 Edge 拥有的残留路由。
+    rpc CleanupEdge(CleanupEdgeRequest) returns (CleanupEdgeResponse);
+}
+
+message ConnectionMeta {
+    string session_id = 1;
+    string conn_id = 2;
+    string edge_id = 3;
+    string user_id = 4;
+    string device_id = 5;
+    string gateway_id = 6;
+    int64 last_client_seq = 7;
+    int64 last_delivered_seq = 8;
+}
+
+message UpsertConnectionRequest {
+    ConnectionMeta connection = 1;
+    int64 ttl_seconds = 2;
+}
+
+message UpsertConnectionResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message RefreshConnectionRequest {
+    string session_id = 1;
+    string conn_id = 2;
+    string edge_id = 3;
+    int64 ttl_seconds = 4;
+}
+
+message RefreshConnectionResponse {
+    bool refreshed = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message RebindGatewayRequest {
+    string session_id = 1;
+    string conn_id = 2;
+    string edge_id = 3;
+    string gateway_id = 4;
+    int64 ttl_seconds = 5;
+}
+
+message RebindGatewayResponse {
+    bool rebound = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message RemoveConnectionRequest {
+    ConnectionMeta connection = 1;
+}
+
+message RemoveConnectionResponse {
+    bool removed = 1;
+}
+
+message GetLiveRoutesRequest {
+    string user_id = 1;
+}
+
+message GetLiveRoutesResponse {
+    repeated ConnectionMeta routes = 1;
+}
+
+message CleanupEdgeRequest {
+    string edge_id = 1;
+    int32 batch_size = 2;
+}
+
+message CleanupEdgeResponse {
+    int32 removed = 1;
+}

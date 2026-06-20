@@ -7,22 +7,23 @@ import (
 	"testing"
 )
 
-// TestUserSchemaMigrationDefinesUsersTableAndUpdatedAtTrigger checks the user domain bootstrap SQL.
-// TestUserSchemaMigrationDefinesUsersTableAndUpdatedAtTrigger 校验 user 域引导 SQL 中的用户表与 updated_at 触发器。
+// TestUserSchemaMigrationDefinesUsersTableAndUpdatedAtTrigger checks the users domain bootstrap SQL.
+// TestUserSchemaMigrationDefinesUsersTableAndUpdatedAtTrigger 校验 users 域引导 SQL 中的用户表与 updated_at 触发器。
 func TestUserSchemaMigrationDefinesUsersTableAndUpdatedAtTrigger(t *testing.T) {
 	t.Helper()
 
 	root := repoRootFromWorkingDir(t)
-	userSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "user", "000_user_users.sql"))
+	userSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "users", "001_user.sql"))
 
 	for _, want := range []string{
-		"CREATE SCHEMA IF NOT EXISTS user",
-		"CREATE TABLE users",
-		"username VARCHAR(50) NOT NULL UNIQUE",
-		"password_hash VARCHAR(255) NOT NULL",
-		"deleted_at TIMESTAMPTZ",
+		"CREATE TABLE IF NOT EXISTS users",
+		"username        VARCHAR(50) NOT NULL",
+		"password_hash   VARCHAR(255)",
+		"deleted_at      TIMESTAMPTZ",
 		"CREATE OR REPLACE FUNCTION update_updated_at_column()",
-		"CREATE TRIGGER update_users_updated_at",
+		"CREATE TRIGGER trigger_users_updated_at",
+		"CREATE TABLE IF NOT EXISTS user_profiles",
+		"PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE",
 	} {
 		if !strings.Contains(userSQL, want) {
 			t.Fatalf("user migration missing %q", want)
@@ -30,61 +31,57 @@ func TestUserSchemaMigrationDefinesUsersTableAndUpdatedAtTrigger(t *testing.T) {
 	}
 }
 
-// TestMessageSchemaMigrationDefinesConversationGraph checks IM core tables and referential integrity.
-// TestMessageSchemaMigrationDefinesConversationGraph 校验 IM 核心表与外键约束。
-func TestMessageSchemaMigrationDefinesConversationGraph(t *testing.T) {
+// TestAuthSchemaMigrationDefinesOAuthAndRefreshTokenTables checks auth persistence SQL.
+// TestAuthSchemaMigrationDefinesOAuthAndRefreshTokenTables 校验 auth 持久化 SQL。
+func TestAuthSchemaMigrationDefinesOAuthAndRefreshTokenTables(t *testing.T) {
 	t.Helper()
 
 	root := repoRootFromWorkingDir(t)
-	messageSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "message", "000_message_core.sql"))
+	authSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "auth", "002_auth.sql"))
 
 	for _, want := range []string{
-		"CREATE TABLE conversations",
-		"CREATE TABLE conversation_members",
-		"CREATE TABLE messages",
-		"CREATE TABLE message_deliveries",
-		"REFERENCES conversations(id)",
-		"REFERENCES users(id)",
-		"message_id VARCHAR(64) NOT NULL UNIQUE",
-		"CONSTRAINT messages_unique_client_message",
-		"CONSTRAINT messages_unique_conversation_sequence",
-		"CONSTRAINT messages_content_not_empty",
-		"CONSTRAINT message_deliveries_unique_recipient",
+		"CREATE TABLE IF NOT EXISTS user_oauth_identities",
+		"user_id          BIGINT NOT NULL REFERENCES users (id) ON DELETE CASCADE",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uk_user_oauth_identities_provider_user_id",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uk_user_oauth_identities_user_provider",
+		"CREATE TABLE IF NOT EXISTS refresh_tokens",
+		"token_hash  CHAR(64) NOT NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uk_refresh_tokens_token_hash",
+		"CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_active",
 	} {
-		if !strings.Contains(messageSQL, want) {
-			t.Fatalf("message migration missing %q", want)
+		if !strings.Contains(authSQL, want) {
+			t.Fatalf("auth migration missing %q", want)
 		}
 	}
 }
 
-// TestMessageSchemaMigrationReusesUserUpdatedAtTrigger wires message tables to the shared trigger function.
-// TestMessageSchemaMigrationReusesUserUpdatedAtTrigger 确认 message 表复用 user 迁移中的 updated_at 触发器函数。
-func TestMessageSchemaMigrationReusesUserUpdatedAtTrigger(t *testing.T) {
+// TestAuthSchemaMigrationReusesUserUpdatedAtTrigger wires auth tables to the shared trigger function.
+// TestAuthSchemaMigrationReusesUserUpdatedAtTrigger 确认 auth 表复用 users 迁移中的 updated_at 触发器函数。
+func TestAuthSchemaMigrationReusesUserUpdatedAtTrigger(t *testing.T) {
 	t.Helper()
 
 	root := repoRootFromWorkingDir(t)
-	messageSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "message", "000_message_core.sql"))
+	authSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "auth", "002_auth.sql"))
 
 	for _, want := range []string{
 		"EXECUTE FUNCTION update_updated_at_column()",
-		"CREATE TRIGGER update_conversations_updated_at",
-		"CREATE TRIGGER update_messages_updated_at",
+		"CREATE TRIGGER trigger_user_oauth_identities_updated_at",
 	} {
-		if !strings.Contains(messageSQL, want) {
-			t.Fatalf("message migration missing %q", want)
+		if !strings.Contains(authSQL, want) {
+			t.Fatalf("auth migration missing %q", want)
 		}
 	}
 }
 
-// TestMigrationLayoutHasExpectedDomainFiles ensures the repo ships the current user/message bootstrap pair.
-// TestMigrationLayoutHasExpectedDomainFiles 确认仓库包含当前的 user/message 引导迁移文件。
+// TestMigrationLayoutHasExpectedDomainFiles ensures the repo ships the current users/auth bootstrap pair.
+// TestMigrationLayoutHasExpectedDomainFiles 确认仓库包含当前的 users/auth 引导迁移文件。
 func TestMigrationLayoutHasExpectedDomainFiles(t *testing.T) {
 	t.Helper()
 
 	root := repoRootFromWorkingDir(t)
 	for _, rel := range []string{
-		filepath.Join("sql", "migrations", "user", "000_user_users.sql"),
-		filepath.Join("sql", "migrations", "message", "000_message_core.sql"),
+		filepath.Join("sql", "migrations", "users", "001_user.sql"),
+		filepath.Join("sql", "migrations", "auth", "002_auth.sql"),
 	} {
 		path := filepath.Join(root, rel)
 		if _, err := os.Stat(path); err != nil {

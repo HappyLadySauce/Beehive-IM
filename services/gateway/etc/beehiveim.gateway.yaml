@@ -1,4 +1,11 @@
 Name: beehiveim.gateway.rpc
 ListenOn: 0.0.0.0:9100
 GatewayID: gateway-dev
+Env: dev
+RegistryPrefix: /beehive-im
+UpstreamAddr: 127.0.0.1:9100
 MaxSessions: 20000
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: beehiveim.gateway.rpc

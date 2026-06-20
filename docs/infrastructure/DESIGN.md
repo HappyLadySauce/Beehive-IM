@@ -781,6 +781,31 @@ PRESENCE_GRPC_TARGET=127.0.0.1:9200
 
 docker compose、迁移脚本和本地环境变量必须使用同一组数据库名、用户名和密码；推荐统一为 `Beehive-IM`，避免本地迁移连接到错误数据库。
 
+### 8.1 当前本地启动顺序
+
+当前代码已接入第一版中间件基座，本地验证顺序：
+
+```powershell
+docker compose -f docker\Infrastructure\docker-compose.yaml up -d
+.\sql\migrate.ps1
+go run .\services\presence -f .\services\presence\etc\beehiveim.presence.yaml
+go run .\services\gateway -f .\services\gateway\etc\beehiveim.gateway.yaml
+go run .\services\user -f .\services\user\etc\beehiveim.user.yaml
+$env:RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/'
+go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
+```
+
+实现状态：
+
+| 中间件 | 当前接入点 |
+|--------|------------|
+| PostgreSQL | `pkg/postgres` 连接池；User `GetUser` 读取真实用户表 |
+| Redis | `pkg/redis` 客户端；Presence 独占在线态 key 写入 |
+| etcd | `pkg/etcd` 服务注册/发现；Gateway 注册，Edge watch Gateway |
+| RabbitMQ | `pkg/rabbitmq` 拓扑/publish 基础封装；Edge 消费 `edge.push.{edge_id}` |
+
+为避免与 go-zero 内置 `Etcd` / `Redis` 配置字段冲突，业务中间件配置使用 `Registry`、`RedisStore` 等显式名称。
+
 ---
 
 ## 9. 可观测性与告警
