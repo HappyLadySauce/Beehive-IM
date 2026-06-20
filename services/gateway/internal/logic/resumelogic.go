@@ -27,6 +27,16 @@ func NewResumeLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ResumeLogi
 // Resume rebuilds an upstream session after Edge rebind.
 // Resume 在 Edge 切换上游后重建上游会话。
 func (l *ResumeLogic) Resume(in *pb.ResumeRequest) (*pb.ResumeResponse, error) {
+	if l.svcCtx.IsDraining() {
+		l.Infof("gateway resume rejected: session_id=%s conn_id=%s edge_id=%s code=%s", in.GetSessionId(), in.GetConnId(), in.GetEdgeId(), session.CodeGatewayDraining)
+		return &pb.ResumeResponse{
+			Accepted:  false,
+			GatewayId: l.svcCtx.Sessions.GatewayID(),
+			ErrorCode: session.CodeGatewayDraining,
+			Message:   "gateway is draining",
+		}, nil
+	}
+
 	sess, err := l.svcCtx.Sessions.Resume(in)
 	if err != nil {
 		l.Errorf("gateway resume rejected: session_id=%s conn_id=%s edge_id=%s code=%s", in.GetSessionId(), in.GetConnId(), in.GetEdgeId(), session.CodeForError(err))

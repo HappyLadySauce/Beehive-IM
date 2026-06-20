@@ -15,6 +15,14 @@ Gateway:
   - 127.0.0.1:9100
   NonBlock: true
   Timeout: 2000
+GatewayRecovery:
+  MaxAttempts: 3
+  WindowMs: 5000
+  BackoffMs:
+  - 50
+  - 100
+  - 200
+  IsolationMs: 10000
 Presence:
   Endpoints:
   - 127.0.0.1:9200

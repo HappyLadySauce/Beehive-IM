@@ -260,7 +260,9 @@ sequenceDiagram
 | `config/edge/ws.read_timeout` | `60s` | 是 | 客户端连接读超时 |
 | `config/edge/ws.ticket_ttl` | `30s` | 是 | WebSocket 一次性 ticket TTL |
 | `config/edge/max_conn` | `50000` | 是 | 单 Edge 最大客户端连接数 |
-| `config/edge/gateway.resume_timeout` | `5s` | 是 | Gateway rebind 恢复窗口 |
+| `config/edge/gateway_recovery.window_ms` | `5000` | 是 | Gateway rebind 总恢复窗口 |
+| `config/edge/gateway_recovery.max_attempts` | `3` | 是 | 单次上游恢复最多尝试 Gateway 数 |
+| `config/edge/gateway_recovery.isolation_ms` | `10000` | 是 | 失败 Gateway 短期隔离时间 |
 | `config/gateway/max_sessions` | `20000` | 是 | 单 Gateway 最大上游会话数 |
 | `config/presence/presence_ttl` | `90s` | 是 | `conn:meta` 和 `session:route` TTL |
 | `config/presence/heartbeat_batch_size` | `512` | 是 | Presence 心跳续期批处理上限 |
@@ -628,8 +630,8 @@ Gateway 下线：
 
 1. Gateway 将注册 value 更新为 `status=draining`。
 2. Edge Watch 到 `draining` 后停止分配新会话。
-3. Edge 将已绑定该 Gateway 的 session rebind 到其他健康 Gateway，或等待自然结束。
-4. Gateway 到达 `drain_timeout` 后关闭剩余上游会话。
+3. Edge 将本机已绑定该 Gateway 的 session 主动 rebind 到其他健康 Gateway。
+4. Gateway 到达 `drain_timeout` 后停止 zRPC server 并关闭剩余上游会话。
 5. Revoke lease，删除 etcd 注册 key。
 
 Edge 下线：
@@ -647,7 +649,7 @@ Edge 下线：
 | `edge.max_conn` | 是 | Edge 入口限流生效 |
 | `edge.ws.ping_interval` | 是 | 只影响新连接或下一轮心跳调度 |
 | `edge.ws.read_timeout` | 是 | 只影响新连接 |
-| `edge.gateway.resume_timeout` | 是 | 下一次 Gateway rebind 生效 |
+| `edge.gateway_recovery.*` | 是 | 下一次 Gateway rebind 生效 |
 | `gateway.max_sessions` | 是 | Edge 过滤和 Gateway 限流生效 |
 | `presence.presence_ttl` | 是 | 下一次连接写入或心跳续期生效 |
 | `presence.cleanup.batch_size` | 是 | 下一轮清理任务生效 |

@@ -5,6 +5,7 @@ Env: dev
 RegistryPrefix: /beehive-im
 UpstreamAddr: 127.0.0.1:9100
 MaxSessions: 20000
+DrainTimeoutSeconds: 15
 Etcd:
   Hosts:
   - 127.0.0.1:2379

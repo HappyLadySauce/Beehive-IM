@@ -27,6 +27,16 @@ func NewAttachLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AttachLogi
 // Attach creates an upstream session for an Edge connection.
 // Attach 为 Edge 连接创建上游会话。
 func (l *AttachLogic) Attach(in *pb.AttachRequest) (*pb.AttachResponse, error) {
+	if l.svcCtx.IsDraining() {
+		l.Infof("gateway attach rejected: session_id=%s conn_id=%s edge_id=%s code=%s", in.GetSessionId(), in.GetConnId(), in.GetEdgeId(), session.CodeGatewayDraining)
+		return &pb.AttachResponse{
+			Accepted:  false,
+			GatewayId: l.svcCtx.Sessions.GatewayID(),
+			ErrorCode: session.CodeGatewayDraining,
+			Message:   "gateway is draining",
+		}, nil
+	}
+
 	if _, err := l.svcCtx.Sessions.Attach(in); err != nil {
 		l.Errorf("gateway attach rejected: session_id=%s conn_id=%s edge_id=%s code=%s", in.GetSessionId(), in.GetConnId(), in.GetEdgeId(), session.CodeForError(err))
 		return &pb.AttachResponse{

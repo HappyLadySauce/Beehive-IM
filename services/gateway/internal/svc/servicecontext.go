@@ -2,6 +2,7 @@ package svc
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	pkgetcd "github.com/HappyLadySauce/Beehive-IM/pkg/etcd"
@@ -16,6 +17,8 @@ type ServiceContext struct {
 	registration *pkgetcd.Registration
 	etcdClient   interface{ Close() error }
 	stopRegistry chan struct{}
+	mu           sync.RWMutex
+	status       string
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -23,6 +26,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Config:       c,
 		Sessions:     session.NewManager(c.GatewayID, c.MaxSessions),
 		stopRegistry: make(chan struct{}),
+		status:       "online",
 	}
 	ctx.startRegistry()
 	return ctx
@@ -46,6 +50,38 @@ func (s *ServiceContext) Close() {
 			logx.Errorf("gateway etcd client close failed: %v", err)
 		}
 	}
+}
+
+func (s *ServiceContext) Status() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.status == "" {
+		return "online"
+	}
+	return s.status
+}
+
+func (s *ServiceContext) IsDraining() bool {
+	return s.Status() == "draining"
+}
+
+func (s *ServiceContext) EnterDraining(ctx context.Context) error {
+	s.mu.Lock()
+	s.status = "draining"
+	s.mu.Unlock()
+
+	if s.registration == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := s.registration.Update(ctx, s.registryNode()); err != nil {
+		logx.Errorf("gateway registry draining update failed: %v", err)
+		return err
+	}
+	return nil
 }
 
 func (s *ServiceContext) startRegistry() {
@@ -95,7 +131,7 @@ func (s *ServiceContext) registryNode() pkgetcd.ServiceNode {
 		InstanceID:    s.Sessions.GatewayID(),
 		Service:       "gateway",
 		Address:       s.Config.UpstreamAddr,
-		Status:        "online",
+		Status:        s.Status(),
 		SessionCount:  s.Sessions.Count(),
 		MaxSessions:   s.Config.MaxSessions,
 		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),

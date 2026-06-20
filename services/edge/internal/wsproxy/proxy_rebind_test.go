@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -37,6 +38,7 @@ func TestRunGatewayRebindsAfterReceiveFailure(t *testing.T) {
 	defer cancel()
 	inbound := make(chan *pb.GatewayFrame, 1)
 	outbound := make(chan []byte, 2)
+	control := make(chan controlMessage, 1)
 	errCh := make(chan error, 1)
 	done := make(chan struct{})
 	go func() {
@@ -54,7 +56,7 @@ func TestRunGatewayRebindsAfterReceiveFailure(t *testing.T) {
 			},
 			lastClientSeq:    7,
 			lastDeliveredSeq: 3,
-		}, inbound, outbound, errCh)
+		}, inbound, outbound, control, errCh)
 	}()
 
 	oldStream := oldGateway.waitStream(t)
@@ -94,6 +96,200 @@ func TestRunGatewayRebindsAfterReceiveFailure(t *testing.T) {
 	}
 }
 
+func TestRunGatewayRetriesMultipleGatewaysBeforeSuccess(t *testing.T) {
+	oldGateway := newFakeGateway("gateway-a")
+	failingGateway := newFakeGateway("gateway-b")
+	failingGateway.resumeErr = errors.New("resume unavailable")
+	newGateway := newFakeGateway("gateway-c")
+	router := &fakeGatewayRouter{
+		endpoints: []fakeGatewayEndpoint{
+			{id: "gateway-b", gateway: failingGateway},
+			{id: "gateway-c", gateway: newGateway},
+		},
+	}
+	presenceClient := &recordingPresence{}
+	proxy := NewProxy(Config{
+		EdgeID:        "edge-1",
+		GatewayRouter: router,
+		Presence:      presenceClient,
+		Tickets:       ticket.NewStore(time.Minute),
+		Recovery: RecoveryConfig{
+			MaxAttempts: 3,
+			Window:      time.Second,
+			Backoffs:    []time.Duration{time.Millisecond, time.Millisecond},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inbound := make(chan *pb.GatewayFrame, 1)
+	outbound := make(chan []byte, 2)
+	control := make(chan controlMessage, 1)
+	errCh := make(chan error, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.runGateway(ctx, gatewaySession{
+			ticket: ticket.Ticket{
+				SessionID: "session-1",
+				UserID:    "user-1",
+				DeviceID:  "device-1",
+			},
+			connID: "conn-1",
+			endpoint: upstreamEndpoint{
+				gateway:   oldGateway,
+				gatewayID: "gateway-a",
+			},
+		}, inbound, outbound, control, errCh)
+	}()
+
+	oldGateway.waitStream(t).recv <- gatewayRecvResult{err: io.ErrUnexpectedEOF}
+	newGateway.waitStream(t)
+
+	select {
+	case <-outbound:
+	case err := <-errCh:
+		t.Fatalf("runGateway() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for session.resumed")
+	}
+	if failingGateway.resumeCount() != 1 {
+		t.Fatalf("failing Resume() calls = %d, want 1", failingGateway.resumeCount())
+	}
+	if newGateway.resumeCount() != 1 {
+		t.Fatalf("new Resume() calls = %d, want 1", newGateway.resumeCount())
+	}
+	if !router.failed("gateway-a") || !router.failed("gateway-b") {
+		t.Fatalf("failed gateways = %v, want gateway-a and gateway-b", router.failures)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runGateway() did not stop after context cancellation")
+	}
+}
+
+func TestRunGatewayReturnsErrorAfterRebindAttemptsExhausted(t *testing.T) {
+	oldGateway := newFakeGateway("gateway-a")
+	failingGateway := newFakeGateway("gateway-b")
+	failingGateway.resumeErr = errors.New("resume unavailable")
+	router := &fakeGatewayRouter{
+		endpoints: []fakeGatewayEndpoint{
+			{id: "gateway-b", gateway: failingGateway},
+		},
+	}
+	proxy := NewProxy(Config{
+		EdgeID:        "edge-1",
+		GatewayRouter: router,
+		Presence:      &recordingPresence{},
+		Tickets:       ticket.NewStore(time.Minute),
+		Recovery: RecoveryConfig{
+			MaxAttempts: 2,
+			Window:      100 * time.Millisecond,
+			Backoffs:    []time.Duration{time.Millisecond},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inbound := make(chan *pb.GatewayFrame, 1)
+	outbound := make(chan []byte, 1)
+	control := make(chan controlMessage, 1)
+	errCh := make(chan error, 1)
+	go proxy.runGateway(ctx, gatewaySession{
+		ticket: ticket.Ticket{
+			SessionID: "session-1",
+			UserID:    "user-1",
+			DeviceID:  "device-1",
+		},
+		connID: "conn-1",
+		endpoint: upstreamEndpoint{
+			gateway:   oldGateway,
+			gatewayID: "gateway-a",
+		},
+	}, inbound, outbound, control, errCh)
+
+	oldGateway.waitStream(t).recv <- gatewayRecvResult{err: io.ErrUnexpectedEOF}
+
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "gateway rebind exhausted") {
+			t.Fatalf("runGateway() error = %v, want exhausted rebind error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for rebind exhaustion")
+	}
+}
+
+func TestRunGatewayMigratesOnControlMessage(t *testing.T) {
+	oldGateway := newFakeGateway("gateway-a")
+	newGateway := newFakeGateway("gateway-b")
+	router := &fakeGatewayRouter{
+		endpoints: []fakeGatewayEndpoint{
+			{id: "gateway-b", gateway: newGateway},
+		},
+	}
+	proxy := NewProxy(Config{
+		EdgeID:        "edge-1",
+		GatewayRouter: router,
+		Presence:      &recordingPresence{},
+		Tickets:       ticket.NewStore(time.Minute),
+		Recovery: RecoveryConfig{
+			MaxAttempts: 2,
+			Window:      time.Second,
+			Backoffs:    []time.Duration{time.Millisecond},
+		},
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	inbound := make(chan *pb.GatewayFrame, 1)
+	outbound := make(chan []byte, 2)
+	control := make(chan controlMessage, 1)
+	errCh := make(chan error, 1)
+	proxy.hub.RegisterConnection("conn-1", "session-1", "gateway-a", outbound, control)
+	defer proxy.hub.UnregisterConnection("conn-1", "session-1")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		proxy.runGateway(ctx, gatewaySession{
+			ticket: ticket.Ticket{
+				SessionID: "session-1",
+				UserID:    "user-1",
+				DeviceID:  "device-1",
+			},
+			connID: "conn-1",
+			endpoint: upstreamEndpoint{
+				gateway:   oldGateway,
+				gatewayID: "gateway-a",
+			},
+		}, inbound, outbound, control, errCh)
+	}()
+	oldGateway.waitStream(t)
+
+	if migrated := proxy.MigrateGateway("gateway-a", "draining"); migrated != 1 {
+		t.Fatalf("MigrateGateway() = %d, want 1", migrated)
+	}
+	newGateway.waitStream(t)
+
+	select {
+	case <-outbound:
+	case err := <-errCh:
+		t.Fatalf("runGateway() error = %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for session.resumed")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runGateway() did not stop after context cancellation")
+	}
+}
+
 type fakeGatewayEndpoint struct {
 	id      string
 	gateway gatewayservice.GatewayService
@@ -103,6 +299,7 @@ type fakeGatewayRouter struct {
 	mu        sync.Mutex
 	endpoints []fakeGatewayEndpoint
 	excludes  []string
+	failures  []string
 }
 
 func (r *fakeGatewayRouter) Pick(ctx context.Context, excludedGatewayIDs ...string) (gatewayservice.GatewayService, string, error) {
@@ -118,6 +315,13 @@ func (r *fakeGatewayRouter) Pick(ctx context.Context, excludedGatewayIDs ...stri
 	return endpoint.gateway, endpoint.id, nil
 }
 
+func (r *fakeGatewayRouter) MarkFailed(gatewayID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.failures = append(r.failures, gatewayID)
+}
+
 func (r *fakeGatewayRouter) excluded(id string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -130,12 +334,27 @@ func (r *fakeGatewayRouter) excluded(id string) bool {
 	return false
 }
 
+func (r *fakeGatewayRouter) failed(id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, failed := range r.failures {
+		if failed == id {
+			return true
+		}
+	}
+	return false
+}
+
 type fakeGateway struct {
 	gatewayservice.GatewayService
 	id             string
 	streams        chan *scriptedGatewayStream
 	mu             sync.Mutex
 	resumeRequests []*gatewayservice.ResumeRequest
+	resumeErr      error
+	rejectResume   bool
+	streamErr      error
 }
 
 func newFakeGateway(id string) *fakeGateway {
@@ -150,6 +369,17 @@ func (g *fakeGateway) Resume(ctx context.Context, in *gatewayservice.ResumeReque
 	defer g.mu.Unlock()
 
 	g.resumeRequests = append(g.resumeRequests, in)
+	if g.resumeErr != nil {
+		return nil, g.resumeErr
+	}
+	if g.rejectResume {
+		return &gatewayservice.ResumeResponse{
+			Accepted:  false,
+			GatewayId: g.id,
+			ErrorCode: "REJECTED",
+			Message:   "rejected",
+		}, nil
+	}
 	return &gatewayservice.ResumeResponse{
 		Accepted:         true,
 		GatewayId:        g.id,
@@ -163,6 +393,9 @@ func (g *fakeGateway) CloseSession(ctx context.Context, in *gatewayservice.Close
 }
 
 func (g *fakeGateway) Stream(ctx context.Context, opts ...grpc.CallOption) (pb.GatewayService_StreamClient, error) {
+	if g.streamErr != nil {
+		return nil, g.streamErr
+	}
 	stream := newScriptedGatewayStream(ctx)
 	g.streams <- stream
 	return stream, nil

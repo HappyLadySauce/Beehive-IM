@@ -19,6 +19,7 @@ type Config struct {
 	Ticket             TicketConf
 	WebSocket          WebSocketConf
 	Gateway            zrpc.RpcClientConf
+	GatewayRecovery    GatewayRecoveryConf
 	Presence           zrpc.RpcClientConf
 	Registry           pkgetcd.Config
 	RabbitMQ           pkgrabbitmq.Config
@@ -31,4 +32,11 @@ type TicketConf struct {
 type WebSocketConf struct {
 	WriteBufferSize int   `json:",default=64"`
 	ReadLimitBytes  int64 `json:",default=65536"`
+}
+
+type GatewayRecoveryConf struct {
+	MaxAttempts int     `json:",default=3"`
+	WindowMs    int64   `json:",default=5000"`
+	BackoffMs   []int64 `json:",optional"`
+	IsolationMs int64   `json:",default=10000"`
 }

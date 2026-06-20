@@ -23,6 +23,8 @@ const (
 	defaultReadLimitBytes  = 65536
 	attachTimeout          = 2 * time.Second
 	rebindTimeout          = 3 * time.Second
+	defaultRecoveryWindow  = 5 * time.Second
+	defaultIsolation       = 10 * time.Second
 	writeTimeout           = 5 * time.Second
 	pongWait               = 60 * time.Second
 	pingPeriod             = 54 * time.Second
@@ -38,6 +40,7 @@ type Proxy struct {
 	gatewayRouter   GatewayRouter
 	presence        presence.Client
 	hub             *Hub
+	recovery        RecoveryConfig
 	upgrader        websocket.Upgrader
 }
 
@@ -49,10 +52,12 @@ type Config struct {
 	Gateway         gatewayservice.GatewayService
 	GatewayRouter   GatewayRouter
 	Presence        presence.Client
+	Recovery        RecoveryConfig
 }
 
 type GatewayRouter interface {
 	Pick(ctx context.Context, excludedGatewayIDs ...string) (gatewayservice.GatewayService, string, error)
+	MarkFailed(gatewayID string)
 }
 
 type clientEnvelope struct {
@@ -72,6 +77,15 @@ type gatewaySession struct {
 	endpoint         upstreamEndpoint
 	lastClientSeq    int64
 	lastDeliveredSeq int64
+}
+
+// RecoveryConfig controls Edge -> Gateway rebind attempts.
+// RecoveryConfig 控制 Edge 到 Gateway 的恢复尝试。
+type RecoveryConfig struct {
+	MaxAttempts int
+	Window      time.Duration
+	Backoffs    []time.Duration
+	Isolation   time.Duration
 }
 
 type gatewayRecvResult struct {
@@ -98,6 +112,7 @@ func NewProxy(c Config) *Proxy {
 	if c.GatewayRouter == nil && c.Gateway != nil {
 		c.GatewayRouter = staticGatewayRouter{gateway: c.Gateway}
 	}
+	recovery := normalizeRecoveryConfig(c.Recovery)
 
 	return &Proxy{
 		edgeID:          c.EdgeID,
@@ -107,6 +122,7 @@ func NewProxy(c Config) *Proxy {
 		gatewayRouter:   c.GatewayRouter,
 		presence:        c.Presence,
 		hub:             NewHub(),
+		recovery:        recovery,
 		upgrader: websocket.Upgrader{
 			Subprotocols: []string{"beehive.im.v1"},
 			CheckOrigin: func(r *http.Request) bool {
@@ -190,16 +206,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	outbound := make(chan []byte, p.writeBufferSize)
 	inbound := make(chan *pb.GatewayFrame, p.writeBufferSize)
+	control := make(chan controlMessage, 4)
 	errCh := make(chan error, 3)
-	p.hub.Register(connID, t.SessionID, outbound)
-	defer p.hub.Unregister(connID, t.SessionID)
+	p.hub.RegisterConnection(connID, t.SessionID, endpoint.gatewayID, outbound, control)
+	defer p.hub.UnregisterConnection(connID, t.SessionID)
 
 	go p.readWebSocket(ctx, ws, inbound, t, connID, errCh)
 	go p.runGateway(ctx, gatewaySession{
 		ticket:   t,
 		connID:   connID,
 		endpoint: endpoint,
-	}, inbound, outbound, errCh)
+	}, inbound, outbound, control, errCh)
 	go p.writeWebSocket(ctx, ws, outbound, errCh)
 
 	err = <-errCh
@@ -211,6 +228,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (p *Proxy) Deliver(ctx context.Context, target PushTarget, payload []byte) bool {
 	return p.hub.Deliver(ctx, target, payload)
+}
+
+func (p *Proxy) MigrateGateway(gatewayID, reason string) int {
+	return p.hub.MigrateGateway(gatewayID, reason)
 }
 
 func (p *Proxy) pickGateway(ctx context.Context, excludedGatewayIDs ...string) (upstreamEndpoint, error) {
@@ -332,7 +353,7 @@ func (p *Proxy) readWebSocket(ctx context.Context, ws *websocket.Conn, inbound c
 	}
 }
 
-func (p *Proxy) runGateway(ctx context.Context, state gatewaySession, inbound <-chan *pb.GatewayFrame, outbound chan<- []byte, errCh chan<- error) {
+func (p *Proxy) runGateway(ctx context.Context, state gatewaySession, inbound <-chan *pb.GatewayFrame, outbound chan<- []byte, control <-chan controlMessage, errCh chan<- error) {
 	stream, streamCancel, err := p.openGatewayStream(ctx, state.endpoint.gateway)
 	if err != nil {
 		p.closeGatewaySession(state.endpoint.gateway, state.ticket, state.connID, "gateway_stream_initial_failed")
@@ -401,6 +422,19 @@ func (p *Proxy) runGateway(ctx context.Context, state gatewaySession, inbound <-
 				return
 			}
 			recvCh = startGatewayReceiver(stream)
+		case cmd := <-control:
+			if cmd.Kind != controlMigrateGateway || cmd.GatewayID == "" || cmd.GatewayID != state.endpoint.gatewayID {
+				continue
+			}
+			streamCancel()
+			_ = stream.CloseSend()
+			p.closeGatewaySession(state.endpoint.gateway, state.ticket, state.connID, "gateway_migration_requested")
+			stream, streamCancel, err = p.rebindGateway(ctx, &state, outbound, cmd.GatewayID, cmd.Reason)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			recvCh = startGatewayReceiver(stream)
 		case <-ctx.Done():
 			return
 		}
@@ -431,14 +465,46 @@ func startGatewayReceiver(stream pb.GatewayService_StreamClient) <-chan gatewayR
 }
 
 func (p *Proxy) rebindGateway(ctx context.Context, state *gatewaySession, outbound chan<- []byte, failedGatewayID string, reason string) (pb.GatewayService_StreamClient, context.CancelFunc, error) {
-	rebindCtx, cancel := context.WithTimeout(ctx, rebindTimeout)
+	rebindCtx, cancel := context.WithTimeout(ctx, p.recovery.Window)
 	defer cancel()
 
-	endpoint, err := p.pickGateway(rebindCtx, failedGatewayID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("gateway rebind pick failed: %w", err)
+	excluded := newGatewayIDSet(failedGatewayID)
+	p.gatewayRouter.MarkFailed(failedGatewayID)
+	var lastErr error
+
+	for attempt := 0; attempt < p.recovery.MaxAttempts; attempt++ {
+		if attempt > 0 {
+			if err := sleepBackoff(rebindCtx, p.recovery.backoff(attempt-1)); err != nil {
+				return nil, nil, err
+			}
+		}
+
+		endpoint, err := p.pickGateway(rebindCtx, excluded.Values()...)
+		if err != nil {
+			lastErr = fmt.Errorf("gateway rebind pick failed: %w", err)
+			continue
+		}
+
+		stream, streamCancel, err := p.tryRebindEndpoint(rebindCtx, ctx, state, endpoint, outbound)
+		if err == nil {
+			return stream, streamCancel, nil
+		}
+
+		gatewayID := endpoint.gatewayID
+		excluded.Add(gatewayID)
+		p.gatewayRouter.MarkFailed(gatewayID)
+		p.closeGatewaySession(endpoint.gateway, state.ticket, state.connID, reason)
+		lastErr = err
 	}
-	resume, err := p.resume(rebindCtx, endpoint, *state)
+
+	if lastErr == nil {
+		lastErr = errors.New("no gateway rebind attempt executed")
+	}
+	return nil, nil, fmt.Errorf("gateway rebind exhausted: %w", lastErr)
+}
+
+func (p *Proxy) tryRebindEndpoint(operationCtx context.Context, streamCtx context.Context, state *gatewaySession, endpoint upstreamEndpoint, outbound chan<- []byte) (pb.GatewayService_StreamClient, context.CancelFunc, error) {
+	resume, err := p.resume(operationCtx, endpoint, *state)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway resume failed: %w", err)
 	}
@@ -451,12 +517,11 @@ func (p *Proxy) rebindGateway(ctx context.Context, state *gatewaySession, outbou
 		state.lastDeliveredSeq = resume.GetLastDeliveredSeq()
 	}
 
-	stream, streamCancel, err := p.openGatewayStream(ctx, endpoint.gateway)
+	stream, streamCancel, err := p.openGatewayStream(streamCtx, endpoint.gateway)
 	if err != nil {
-		p.closeGatewaySession(endpoint.gateway, state.ticket, state.connID, reason)
 		return nil, nil, fmt.Errorf("gateway stream reopen failed: %w", err)
 	}
-	if err := p.presence.RebindGateway(ctx, presence.ConnectionMeta{
+	if err := p.presence.RebindGateway(operationCtx, presence.ConnectionMeta{
 		SessionID: state.ticket.SessionID,
 		ConnID:    state.connID,
 		EdgeID:    p.edgeID,
@@ -466,15 +531,17 @@ func (p *Proxy) rebindGateway(ctx context.Context, state *gatewaySession, outbou
 	}); err != nil {
 		streamCancel()
 		_ = stream.CloseSend()
-		p.closeGatewaySession(endpoint.gateway, state.ticket, state.connID, "presence_rebind_failed")
 		return nil, nil, err
 	}
 
+	oldEndpoint := state.endpoint
 	state.endpoint = endpoint
-	if err := sendOutbound(ctx, outbound, p.sessionResumedPayload(*state)); err != nil {
+	p.hub.UpdateGateway(state.connID, endpoint.gatewayID)
+	if err := sendOutbound(operationCtx, outbound, p.sessionResumedPayload(*state)); err != nil {
 		streamCancel()
 		_ = stream.CloseSend()
-		p.closeGatewaySession(endpoint.gateway, state.ticket, state.connID, "session_resumed_delivery_failed")
+		state.endpoint = oldEndpoint
+		p.hub.UpdateGateway(state.connID, oldEndpoint.gatewayID)
 		return nil, nil, err
 	}
 	return stream, streamCancel, nil
@@ -576,9 +643,77 @@ func (r staticGatewayRouter) Pick(ctx context.Context, excludedGatewayIDs ...str
 	return r.gateway, "", nil
 }
 
+func (r staticGatewayRouter) MarkFailed(gatewayID string) {
+}
+
 func gatewayID(primary, fallback string) string {
 	if primary != "" {
 		return primary
 	}
 	return fallback
+}
+
+func normalizeRecoveryConfig(c RecoveryConfig) RecoveryConfig {
+	if c.MaxAttempts <= 0 {
+		c.MaxAttempts = 3
+	}
+	if c.Window <= 0 {
+		c.Window = defaultRecoveryWindow
+	}
+	if c.Isolation <= 0 {
+		c.Isolation = defaultIsolation
+	}
+	if len(c.Backoffs) == 0 {
+		c.Backoffs = []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
+	}
+	return c
+}
+
+func (c RecoveryConfig) backoff(index int) time.Duration {
+	if len(c.Backoffs) == 0 {
+		return 0
+	}
+	if index < len(c.Backoffs) {
+		return c.Backoffs[index]
+	}
+	return c.Backoffs[len(c.Backoffs)-1]
+}
+
+func sleepBackoff(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+type gatewayIDSet map[string]struct{}
+
+func newGatewayIDSet(ids ...string) gatewayIDSet {
+	set := gatewayIDSet{}
+	for _, id := range ids {
+		set.Add(id)
+	}
+	return set
+}
+
+func (s gatewayIDSet) Add(id string) {
+	if id != "" {
+		s[id] = struct{}{}
+	}
+}
+
+func (s gatewayIDSet) Values() []string {
+	values := make([]string, 0, len(s))
+	for id := range s {
+		values = append(values, id)
+	}
+	return values
 }

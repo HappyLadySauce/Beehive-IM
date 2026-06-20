@@ -14,6 +14,7 @@ const (
 	CodeSessionNotFound      = "SESSION_NOT_FOUND"
 	CodeSessionCapacity      = "SESSION_CAPACITY_EXCEEDED"
 	CodeSessionOwnerMismatch = "SESSION_OWNER_MISMATCH"
+	CodeGatewayDraining      = "GATEWAY_DRAINING"
 )
 
 var (

@@ -1,8 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/internal/config"
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/internal/server"
@@ -35,6 +40,28 @@ func main() {
 	})
 	defer s.Stop()
 
+	stopOnSignal(s, ctx, c.DrainTimeoutSeconds)
+
 	fmt.Printf("Starting rpc server at %s...\n", c.ListenOn)
 	s.Start()
+}
+
+func stopOnSignal(server *zrpc.RpcServer, svcCtx *svc.ServiceContext, drainTimeoutSeconds int64) {
+	if drainTimeoutSeconds <= 0 {
+		drainTimeoutSeconds = 15
+	}
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		fmt.Println("Gateway received shutdown signal, entering draining mode...")
+		drainCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := svcCtx.EnterDraining(drainCtx); err != nil {
+			fmt.Printf("Gateway draining registry update failed: %v\n", err)
+		}
+		cancel()
+		time.Sleep(time.Duration(drainTimeoutSeconds) * time.Second)
+		server.Stop()
+	}()
 }
