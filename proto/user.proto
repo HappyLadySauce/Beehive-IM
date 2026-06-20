@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package beehive_im.user;
 
-option go_package = "./services/user/pb";
+option go_package = "./pb";
 
 service UserService {
     rpc GetUser(GetUserRequest) returns (GetUserResponse);

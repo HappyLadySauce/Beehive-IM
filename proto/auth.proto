@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package beehive_im.auth;
 
-option go_package = "./services/auth/pb";
+option go_package = "./pb";
 
 service AuthService {
     // --- Local account / 本地账号登录 ---
