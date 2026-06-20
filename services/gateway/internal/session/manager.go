@@ -13,6 +13,7 @@ const (
 	CodeSessionAlreadyExists = "SESSION_ALREADY_EXISTS"
 	CodeSessionNotFound      = "SESSION_NOT_FOUND"
 	CodeSessionCapacity      = "SESSION_CAPACITY_EXCEEDED"
+	CodeSessionOwnerMismatch = "SESSION_OWNER_MISMATCH"
 )
 
 var (
@@ -20,6 +21,7 @@ var (
 	ErrSessionAlreadyExists = errors.New("session already exists")
 	ErrSessionNotFound      = errors.New("session not found")
 	ErrSessionCapacity      = errors.New("session capacity exceeded")
+	ErrSessionOwnerMismatch = errors.New("session owner mismatch")
 )
 
 // Session stores rebuildable upstream state for one Edge connection.
@@ -172,18 +174,24 @@ func (m *Manager) Count() int {
 	return len(m.sessions)
 }
 
-func (m *Manager) NextServerSeq(sessionID string) (int64, bool) {
+func (m *Manager) NextServerSeq(sessionID, connID string, clientSeq int64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	sess, ok := m.sessions[sessionID]
 	if !ok {
-		return 0, false
+		return 0, ErrSessionNotFound
+	}
+	if connID == "" || sess.ConnID != connID {
+		return 0, ErrSessionOwnerMismatch
 	}
 
+	if clientSeq > sess.LastClientSeq {
+		sess.LastClientSeq = clientSeq
+	}
 	sess.ServerSeq++
 	sess.UpdatedAt = time.Now().UTC()
-	return sess.ServerSeq, true
+	return sess.ServerSeq, nil
 }
 
 func cloneSession(sess *Session) *Session {
@@ -201,6 +209,8 @@ func CodeForError(err error) string {
 		return CodeSessionCapacity
 	case errors.Is(err, ErrSessionNotFound):
 		return CodeSessionNotFound
+	case errors.Is(err, ErrSessionOwnerMismatch):
+		return CodeSessionOwnerMismatch
 	default:
 		return "INTERNAL_ERROR"
 	}

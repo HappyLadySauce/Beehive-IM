@@ -62,3 +62,33 @@ func TestStreamLogicRejectsUnknownSession(t *testing.T) {
 		t.Fatalf("ServerSeq = %d, want 0", resp.GetServerSeq())
 	}
 }
+
+func TestStreamLogicRejectsMismatchedConn(t *testing.T) {
+	manager := session.NewManager("gateway-1", 10)
+	if _, err := manager.Attach(&pb.AttachRequest{
+		SessionId: "session-1",
+		ConnId:    "conn-1",
+		EdgeId:    "edge-1",
+		UserId:    "user-1",
+	}); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+	logic := NewStreamLogic(context.Background(), &svc.ServiceContext{Sessions: manager})
+
+	resp := logic.handleFrame(&pb.GatewayFrame{
+		SessionId: "session-1",
+		ConnId:    "conn-2",
+		FrameType: "ping",
+	})
+	if resp.GetFrameType() != "error" {
+		t.Fatalf("FrameType = %q, want error", resp.GetFrameType())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(resp.GetPayloadJson()), &payload); err != nil {
+		t.Fatalf("payload json error = %v", err)
+	}
+	if payload["code"] != session.CodeSessionOwnerMismatch {
+		t.Fatalf("payload code = %v, want %s", payload["code"], session.CodeSessionOwnerMismatch)
+	}
+}

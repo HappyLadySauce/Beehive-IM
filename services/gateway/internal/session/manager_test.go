@@ -119,3 +119,26 @@ func TestManagerCloseRequiresMatchingOwner(t *testing.T) {
 		t.Fatal("session still exists after close")
 	}
 }
+
+func TestManagerNextServerSeqRequiresMatchingConn(t *testing.T) {
+	manager := NewManager("gateway-1", 10)
+	if _, err := manager.Attach(&pb.AttachRequest{
+		SessionId: "session-1",
+		ConnId:    "conn-1",
+		EdgeId:    "edge-1",
+		UserId:    "user-1",
+	}); err != nil {
+		t.Fatalf("Attach() error = %v", err)
+	}
+
+	if _, err := manager.NextServerSeq("session-1", "conn-2", 1); !errors.Is(err, ErrSessionOwnerMismatch) {
+		t.Fatalf("NextServerSeq() error = %v, want %v", err, ErrSessionOwnerMismatch)
+	}
+	seq, err := manager.NextServerSeq("session-1", "conn-1", 2)
+	if err != nil {
+		t.Fatalf("NextServerSeq() error = %v", err)
+	}
+	if seq != 1 {
+		t.Fatalf("NextServerSeq() = %d, want 1", seq)
+	}
+}

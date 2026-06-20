@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 
+	"github.com/HappyLadySauce/Beehive-IM/services/gateway/internal/session"
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/internal/svc"
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/pb"
 
@@ -48,12 +49,12 @@ func (l *StreamLogic) Stream(stream pb.GatewayService_StreamServer) error {
 }
 
 func (l *StreamLogic) handleFrame(frame *pb.GatewayFrame) *pb.GatewayFrame {
-	serverSeq, ok := l.svcCtx.Sessions.NextServerSeq(frame.GetSessionId())
-	if !ok {
+	serverSeq, err := l.svcCtx.Sessions.NextServerSeq(frame.GetSessionId(), frame.GetConnId(), frame.GetClientSeq())
+	if err != nil {
 		return buildFrame(frame, "error", 0, map[string]any{
 			"type":    "error",
-			"code":    "SESSION_NOT_FOUND",
-			"message": "Session not found",
+			"code":    session.CodeForError(err),
+			"message": err.Error(),
 		})
 	}
 

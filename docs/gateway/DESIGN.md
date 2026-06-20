@@ -56,7 +56,9 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
 | Edge -> Gateway | 已采用 gRPC bidirectional stream 转发 JSON WebSocket 信封 |
 | Gateway 会话 | 当前为内存 session manager，支持 attach、resume、close、容量限制和 ping/pong/echo 验证帧 |
+| Gateway rebind | Edge 已具备基础 rebind/resume 骨架：上游 stream 断开后排除故障 Gateway、选择新 Gateway、调用 `Resume`、更新 Presence route 并向客户端发送 `session.resumed` |
 | Presence | 已生成 `services/presence`，Edge 通过 zRPC 调用 Presence，在线态写入 Redis |
+| Presence refresh | Edge 收到客户端业务帧后调用 Presence `RefreshConnection`，刷新 `conn:meta` 与 `session:route` TTL |
 | Gateway 选择 | Gateway 注册到 etcd，Edge watch `/beehive-im/{env}/services/gateway/` 并回退静态 Gateway endpoint |
 | RabbitMQ push | Edge 已有 `edge.push.{edge_id}` consumer 骨架，可按 `conn_id` 或 `session_id` 写入本机 WebSocket |
 | User PostgreSQL | User 服务已接 PostgreSQL，`GetUser` 从 `users` / `user_profiles` 读取 |
@@ -216,6 +218,7 @@ sequenceDiagram
 
 - Edge 的恢复窗口由 `config/edge/gateway.resume_timeout` 控制，默认不超过 5s。
 - Edge 只允许有限缓冲客户端上行帧，默认按连接 64 到 256 条或固定字节数限制。
+- 当前代码已实现基础恢复骨架，恢复窗口暂使用代码常量 `rebindTimeout=3s`，后续需要提升为 YAML 配置。
 - 恢复失败时 Edge 关闭客户端连接，客户端按正常重连流程进入 Message 同步补偿。
 - `resume` 成功不代表消息无缺口，客户端仍应按 `conversation_id + seq` 同步缺失消息。
 

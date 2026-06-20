@@ -24,6 +24,8 @@ type ConnectionMeta struct {
 // Client 定义 Edge 使用的 Presence 边界。
 type Client interface {
 	UpsertConnection(ctx context.Context, conn ConnectionMeta) error
+	RefreshConnection(ctx context.Context, conn ConnectionMeta) error
+	RebindGateway(ctx context.Context, conn ConnectionMeta) error
 	RemoveConnection(ctx context.Context, conn ConnectionMeta) error
 }
 
@@ -36,6 +38,14 @@ func NewNoopClient() NoopClient {
 }
 
 func (NoopClient) UpsertConnection(ctx context.Context, conn ConnectionMeta) error {
+	return nil
+}
+
+func (NoopClient) RefreshConnection(ctx context.Context, conn ConnectionMeta) error {
+	return nil
+}
+
+func (NoopClient) RebindGateway(ctx context.Context, conn ConnectionMeta) error {
 	return nil
 }
 
@@ -85,6 +95,51 @@ func (c *RPCClient) UpsertConnection(ctx context.Context, conn ConnectionMeta) e
 	}
 	if !resp.GetAccepted() {
 		return fmt.Errorf("presence upsert rejected: %s %s", resp.GetErrorCode(), resp.GetMessage())
+	}
+	return nil
+}
+
+func (c *RPCClient) RefreshConnection(ctx context.Context, conn ConnectionMeta) error {
+	if c == nil || c.client == nil {
+		return errors.New("presence client is unavailable")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.client.RefreshConnection(callCtx, &presenceservice.RefreshConnectionRequest{
+		SessionId:  conn.SessionID,
+		ConnId:     conn.ConnID,
+		EdgeId:     conn.EdgeID,
+		TtlSeconds: c.ttlSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("presence refresh rpc: %w", err)
+	}
+	if !resp.GetRefreshed() {
+		return fmt.Errorf("presence refresh rejected: %s %s", resp.GetErrorCode(), resp.GetMessage())
+	}
+	return nil
+}
+
+func (c *RPCClient) RebindGateway(ctx context.Context, conn ConnectionMeta) error {
+	if c == nil || c.client == nil {
+		return errors.New("presence client is unavailable")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	resp, err := c.client.RebindGateway(callCtx, &presenceservice.RebindGatewayRequest{
+		SessionId:  conn.SessionID,
+		ConnId:     conn.ConnID,
+		EdgeId:     conn.EdgeID,
+		GatewayId:  conn.GatewayID,
+		TtlSeconds: c.ttlSeconds,
+	})
+	if err != nil {
+		return fmt.Errorf("presence rebind rpc: %w", err)
+	}
+	if !resp.GetRebound() {
+		return fmt.Errorf("presence rebind rejected: %s %s", resp.GetErrorCode(), resp.GetMessage())
 	}
 	return nil
 }

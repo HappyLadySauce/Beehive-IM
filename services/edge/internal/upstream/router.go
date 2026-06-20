@@ -75,8 +75,8 @@ func (r *Router) Close() {
 	}
 }
 
-func (r *Router) Pick(ctx context.Context) (gatewayservice.GatewayService, string, error) {
-	node, ok := r.pickNode()
+func (r *Router) Pick(ctx context.Context, excludedGatewayIDs ...string) (gatewayservice.GatewayService, string, error) {
+	node, ok := r.pickNode(excludedGatewayIDs...)
 	if ok {
 		conf := r.clientConf
 		conf.Endpoints = []string{node.Address}
@@ -90,18 +90,21 @@ func (r *Router) Pick(ctx context.Context) (gatewayservice.GatewayService, strin
 		}
 		return gatewayservice.NewGatewayService(zrpc.MustNewClient(conf)), node.InstanceID, nil
 	}
-	if r.static != nil {
+	if r.static != nil && !containsID(excludedGatewayIDs, r.staticID) {
 		return r.static, r.staticID, nil
 	}
 	return nil, "", ErrNoGatewayAvailable
 }
 
-func (r *Router) pickNode() (pkgetcd.ServiceNode, bool) {
+func (r *Router) pickNode(excludedGatewayIDs ...string) (pkgetcd.ServiceNode, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	candidates := make([]pkgetcd.ServiceNode, 0, len(r.nodes))
 	for _, node := range r.nodes {
+		if containsID(excludedGatewayIDs, node.InstanceID) {
+			continue
+		}
 		if node.Status != "online" || node.Address == "" {
 			continue
 		}
@@ -117,6 +120,18 @@ func (r *Router) pickNode() (pkgetcd.ServiceNode, bool) {
 		return candidates[i].SessionCount < candidates[j].SessionCount
 	})
 	return candidates[0], true
+}
+
+func containsID(ids []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	for _, id := range ids {
+		if id == target {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Router) reload(ctx context.Context) {
