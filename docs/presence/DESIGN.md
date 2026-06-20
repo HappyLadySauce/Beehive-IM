@@ -2,7 +2,7 @@
 
 > 版本：v1.0
 > 适用范围：在线态、连接路由、Gateway rebind 路由更新、Presence API、Redis 运行态存储
-> 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)
+> 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)
 
 ---
 

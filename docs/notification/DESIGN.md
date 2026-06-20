@@ -2,13 +2,13 @@
 
 > 版本：v1.0
 > 适用范围：消息/会话事件消费、在线 Edge push、离线通知、通知偏好、设备 token、幂等去重和限流
-> 关联文件：[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)
+> 关联文件：[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)
 
 ---
 
 ## 1. 目标与范围
 
-Notification 服务负责把业务事件转换成用户可接收的通知。Message 服务只负责消息事实和 outbox 可靠发布；Notification 消费领域事件后，统一完成收件人解析、通知偏好判断、在线路由查询、在线 Edge push、离线 provider 推送、投递记录、幂等和限流。
+Notification 服务负责把业务事件转换成用户可接收的通知。Message 服务只负责消息事实和 outbox 可靠发布；Notification 消费领域事件后，统一完成收件人解析、通知偏好判断、在线路由查询、在线 Edge push、投递记录、幂等和限流。v1 客户端只考虑 Web 端，离线移动端 provider 作为后续扩展；当前优先保证在线 Edge push 和 Web 客户端补偿同步。
 
 ### 1.1 职责
 
@@ -17,7 +17,7 @@ Notification 服务负责把业务事件转换成用户可接收的通知。Mess
 | 事件消费 | 消费 `message.created.#`、`conversation.updated.#` 等领域事件 |
 | 收件人解析 | 调用 Conversation 或使用事件快照解析会话成员、免打扰和屏蔽关系 |
 | 在线通知 | 调用 Presence `GetLiveRoutes`，按 `edge_id` 聚合并发布 `push.edge.{edge_id}` |
-| 离线通知 | 查询设备 token 和通知偏好，调用 APNs/FCM/厂商通道 |
+| 离线通知 | v1 预留 Web Push / 移动 provider 扩展；当前不作为 Web 消息可靠性的依赖 |
 | 幂等去重 | 防止 RabbitMQ 重投、服务重启和 provider 重试导致重复通知 |
 | 限流降级 | 按用户、会话、provider 和全局维度限流 |
 | 投递记录 | 记录必要的 notification delivery 状态，便于审计和补偿 |
@@ -43,7 +43,7 @@ flowchart LR
     PG[(PostgreSQL)]
     RMQ[(RabbitMQ)]
     Edge[Edge Service]
-    Provider[Offline Push Providers]
+    Provider[Optional Web Push / Offline Providers]
 
     Message -->|outbox publish message.created| RMQ
     RMQ -->|durable queue| Notification
@@ -124,7 +124,7 @@ Edge 必须在写入本地 WebSocket buffer 成功后 ack RabbitMQ 消息。Edge
 | 阶段 | 策略 |
 |------|------|
 | 事件消费失败 | `nack` 后进入有界重试或 retry exchange |
-| Presence 查询超时 | 短退避重试；超过阈值转 DLQ 或只做离线策略 |
+| Presence 查询超时 | 短退避重试；超过阈值转 DLQ，Web 客户端依赖 Message 同步补偿 |
 | Edge push 发布失败 | publisher confirm 失败后重试，不影响消息事实 |
 | Provider 调用失败 | 按 provider 错误类型决定重试、熔断或丢弃 |
 | DLQ | 任意新增必须告警，保留重放工具 |
@@ -142,7 +142,7 @@ sequenceDiagram
     participant R as Redis
     participant DB as PostgreSQL
     participant E as Edge
-    participant OP as OfflineProvider
+    participant OP as OptionalProvider
 
     RMQ->>N: message.created event
     N->>R: SETNX notify:dedupe:{event_id}
@@ -152,7 +152,7 @@ sequenceDiagram
     N->>RMQ: publish push.edge.{edge_id}
     RMQ->>E: edge push
     N->>DB: insert/update delivery records
-    N->>OP: offline push for offline devices
+    N->>OP: optional offline/web push
     N->>RMQ: ack input event
 ```
 
@@ -161,7 +161,7 @@ sequenceDiagram
 1. 先做事件级幂等，重复事件直接 ack。
 2. 再解析收件人和通知偏好，发送者默认不通知自己，除非业务明确需要多端同步提示。
 3. 查询 Presence，将在线设备放入 Edge push。
-4. 离线设备按用户设置、平台能力和限流策略决定是否调用 provider。
+4. v1 Web 端不依赖离线 provider 保证可靠性；后续启用 Web Push 或移动 provider 时，再按用户设置、平台能力和限流策略调用 provider。
 5. 投递记录只保存必要审计信息，禁止保存完整敏感消息内容。
 
 ---
@@ -172,7 +172,7 @@ sequenceDiagram
 
 | 表 | 说明 |
 |----|------|
-| `notification_devices` | 用户设备 token、平台、状态、最近活跃时间 |
+| `notification_devices` | 可选 Web Push / 移动 provider token、平台、状态、最近活跃时间 |
 | `notification_preferences` | 用户级、会话级免打扰和通知策略 |
 | `notification_deliveries` | 投递记录、状态、错误码、重试次数 |
 
@@ -184,7 +184,7 @@ sequenceDiagram
 | `user_id` | 用户 ID |
 | `device_id` | 客户端设备 ID |
 | `platform` | `ios`、`android`、`web` 等 |
-| `provider` | `apns`、`fcm`、厂商通道 |
+| `provider` | `web_push`、`apns`、`fcm`、厂商通道 |
 | `token_ciphertext` | 加密后的 provider token |
 | `status` | `active`、`disabled`、`invalid` |
 | `last_seen_at` | 最近活跃时间 |
@@ -277,7 +277,7 @@ type OfflineProvider interface {
 |------|------|
 | 用户 | 防止单用户被群消息刷屏 |
 | 会话 | 大群或热点会话按会话限速 |
-| Provider | APNs/FCM/厂商通道按配额限速 |
+| Provider | 可选 Web Push / 未来移动 provider 按配额限速 |
 | 全局 | Notification worker pool 和 RabbitMQ prefetch 必须有限 |
 
 ### 7.3 安全
@@ -300,7 +300,7 @@ type OfflineProvider interface {
 | `notification_dedupe_hit_total` | 幂等命中次数 |
 | `notification_online_push_success_total` | 在线 push 成功 |
 | `notification_online_push_failed_total` | 在线 push 失败 |
-| `notification_offline_provider_latency_ms` | 离线 provider 延迟 |
+| `notification_offline_provider_latency_ms` | 可选离线 provider 延迟 |
 | `notification_rate_limited_total` | 限流次数 |
 | `notification_dlq_total` | DLQ 数量 |
 
@@ -319,7 +319,7 @@ type OfflineProvider interface {
 | Notification 堆积 | 在线通知延迟，离线通知错过时效 | 有限 prefetch、水平扩容、DLQ、事件滞后告警 |
 | 重复消费 | 用户收到重复通知 | 多层幂等 key、投递记录唯一索引 |
 | Presence 查询失败 | 在线用户无法实时收到 push | 短重试、降级到客户端同步、必要时离线策略 |
-| Provider 故障 | 离线通知失败 | 超时、熔断、备用 provider、失败记录 |
+| Provider 故障 | 可选离线通知失败，不影响 Web 消息同步 | 超时、熔断、备用 provider、失败记录 |
 | 大群通知放大 | MQ、Presence、provider 压力升高 | 收件人分页、按 Edge 聚合、限流和摘要通知 |
 
 ---
@@ -328,8 +328,8 @@ type OfflineProvider interface {
 
 - [ ] Message 不直接查询 Presence，也不直接发布 `push.edge`。
 - [ ] Notification 使用 durable queue 消费领域事件，并支持重试和 DLQ。
-- [ ] 输入事件、在线 push 和离线 provider 都具备幂等策略。
+- [ ] 输入事件和在线 push 具备幂等策略；可选离线 provider 启用时也必须具备幂等策略。
 - [ ] 在线 push 通过 Presence 查询路由，并按 `edge_id` 聚合发布。
-- [ ] 离线 provider 调用具备超时、熔断、限流和错误分类。
+- [ ] 可选离线 provider 调用具备超时、熔断、限流和错误分类。
 - [ ] 设备 token 加密存储，日志不输出 token 或 secret。
 - [ ] 指标和告警覆盖 event lag、DLQ、provider latency、dedupe、rate limit。

@@ -2,7 +2,7 @@
 
 > 版本：v1.2
 > 适用范围：Edge 公网 WebSocket 代理入口、Gateway 内网上游会话节点、连接恢复、在线态与下行推送
-> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)、[`proto/auth.proto`](../../proto/auth.proto)
+> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`proto/auth.proto`](../../proto/auth.proto)
 
 ---
 
@@ -104,7 +104,8 @@ flowchart TB
 - 客户端登录、注册、刷新令牌通过公网 API 入口访问，入口可以由 Edge 或独立 API Gateway 承载。
 - Auth gRPC 服务保持内网暴露，只被 Edge/API Gateway/BFF 等可信入口调用。
 - Edge 与 Gateway 从 etcd `secrets/global/jwt.secret` 读取同一验签密钥；v1 密钥变更通过滚动重启生效。
-- Edge 在 WebSocket 握手阶段本地验签 JWT；Gateway 仍需校验 Edge 传递的签名上下文或内部 mTLS 身份，避免盲信上游。
+- Web 客户端先通过 HTTPS 申请一次性 `ws_ticket`，再用 `wss://im.example.com/ws?ticket=...` 建立连接；Edge 在握手阶段消费 ticket 并还原 auth context。
+- Gateway 仍需校验 Edge 传递的签名上下文或内部 mTLS 身份，避免盲信上游。
 - JWT 载荷约定见 [`docs/auth/DESIGN.md`](../auth/DESIGN.md) 第 4.1 节：`sub`、`username`、`iat`、`exp`、`jti`。
 
 ### 2.2 组件职责边界
@@ -136,8 +137,8 @@ sequenceDiagram
     A-->>E: access_token + refresh_token
     E-->>C: login response
 
-    C->>E: WSS /ws Authorization Bearer + X-Device-Id
-    E->>E: verify JWT and origin
+    C->>E: WSS /ws?ticket=...
+    E->>E: verify origin and consume ws_ticket
     E->>EC: read Gateway view from Watch cache
     E->>E: select Gateway
     E->>G: internal attach(session_id, auth_context)
@@ -218,16 +219,14 @@ Auth gRPC 服务不直接公网暴露。
 ### 4.2 WebSocket 端点
 
 ```http
-GET /ws HTTP/1.1
+GET /ws?ticket={ws_ticket} HTTP/1.1
 Host: im.example.com
 Upgrade: websocket
 Connection: Upgrade
-Authorization: Bearer {access_token}
-X-Device-Id: {device_id}
-X-Client-Session-Id: {optional_session_id}
+Sec-WebSocket-Protocol: beehive.im.v1
 ```
 
-query token 仅允许本地调试，生产环境禁止使用 query token，避免日志泄露。
+浏览器原生 WebSocket 不能设置自定义 `Authorization` 或 `X-Device-Id` 头。Web 端必须先通过 `POST /v1/ws/ticket` 获取一次性短 TTL ticket；生产环境禁止把 access token / refresh token 放入 query，只有单次使用的 `ws_ticket` 可以出现在 WebSocket URL 中。
 
 ### 4.3 握手认证流程
 
@@ -237,7 +236,7 @@ flowchart TD
     B -->|否| R403[403 Forbidden]
     B -->|是| C{解析 Authorization}
     C -->|缺失| R401[401 Unauthorized]
-    C -->|存在| D{JWT 验签}
+    C -->|存在| D{ticket valid and unused?}
     D -->|失败/过期| R401
     D -->|成功| E{jti blacklist?}
     E -->|命中| R401
@@ -379,7 +378,7 @@ Gateway 保存的是可重建的上游会话状态，不能作为客户端在线
 
 ### 5.4 Gateway 注册与心跳（etcd）
 
-Gateway 启动后向 **etcd** 注册租约，并周期性 KeepAlive 上报负载；客户端在线态由 **Presence** 管理，Edge 只调用 Presence API。详见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)。
+Gateway 启动后向 **etcd** 注册租约，并周期性 KeepAlive 上报负载；客户端在线态由 **Presence** 管理，Edge 只调用 Presence API。详见 [`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)。
 
 **生命周期**
 
@@ -406,7 +405,7 @@ stateDiagram-v2
 
 ## 6. 存储模型
 
-服务注册走 **etcd**，客户端在线态走 **Presence 服务**，下行推送走 **RabbitMQ 到 Edge**。Redis key 是 Presence 的内部实现细节，Edge 和 Gateway 不直接读写。分工见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md) 与 [`docs/presence/DESIGN.md`](../presence/DESIGN.md)。
+服务注册走 **etcd**，客户端在线态走 **Presence 服务**，下行推送走 **RabbitMQ 到 Edge**。Redis key 是 Presence 的内部实现细节，Edge 和 Gateway 不直接读写。分工见 [`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md) 与 [`docs/presence/DESIGN.md`](../presence/DESIGN.md)。
 
 ### 6.1 etcd：Gateway 服务注册
 
@@ -496,7 +495,7 @@ Notification 服务向在线用户推送时：
 
 RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge 或客户端断线后必须能通过 Message 服务按会话序号同步缺失消息。
 
-详见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md) 第 5 节。
+详见 [`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md) 第 5 节。
 
 ---
 
@@ -566,7 +565,7 @@ RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge �
 
 ### 7.3 认证与消息分离
 
-- **认证**：仅在 HTTP Upgrade 阶段完成
+- **认证**：Web 端通过一次性 `ws_ticket` 在 HTTP Upgrade 阶段完成
 - **业务消息**：握手成功后才开始收发；不在 WS 帧中传递 token
 - **上游恢复**：Gateway rebind 使用 Edge 内部 auth context，不向客户端暴露 Gateway 地址
 
@@ -576,18 +575,19 @@ RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge �
 
 | 场景 | 客户端行为 | Edge 行为 | Gateway 行为 |
 |------|------------|-----------|--------------|
-| 客户端到 Edge 网络闪断 | 重连 `wss://im.example.com/ws` | 清理旧连接或等待 TTL | 无 |
+| 客户端到 Edge 网络闪断 | 重新申请 `ws_ticket` 后重连 `wss://im.example.com/ws` | 清理旧连接或等待 TTL | 无 |
 | Gateway 上游断开 | 保持连接，等待恢复或收到错误帧 | 选择新 Gateway，执行 `resume` | 新 Gateway 重建会话 |
 | Gateway draining | 无感或收到 `session.resumed` | 主动 rebind 到健康 Gateway | 停止接新会话 |
 | Edge 进程退出 | 客户端重连 Edge 域名 | draining 后关闭连接 | 上游会话释放 |
-| access_token 过期 | 刷新 token 后重连 Edge | 握手阶段拒绝旧 token | 无 |
+| access_token 过期 | 刷新 token、重新申请 `ws_ticket` 后重连 Edge | 握手阶段拒绝旧 ticket | 无 |
 | RabbitMQ 推送延迟 | 客户端按 seq 同步缺失消息 | 背压和告警 | 无 |
 
 **客户端兜底重连策略**
 
 1. 等待 `1s -> 2s -> 4s -> 8s`，上限 30s。
 2. 始终重连统一 Edge 域名，不请求 Gateway 地址。
-3. 重连成功后携带 `session_id`、`last_received_seq`，由 Edge 和 Message 完成恢复。
+3. 每次重连都重新申请 `ws_ticket`，不复用旧 ticket。
+4. 重连成功后由 Web 客户端按本地 cursor 调用 Message 同步接口补齐缺失消息。
 
 ---
 
@@ -597,8 +597,8 @@ RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge �
 |----|------|
 | 公网暴露 | 只暴露 Edge/API Gateway；Gateway、Auth gRPC、Presence、Notification、Redis、etcd、RabbitMQ 均为内网 |
 | 传输 | Client -> Edge 使用 HTTPS/WSS；Edge -> Gateway 使用 mTLS |
-| Token 传递 | 客户端使用 `Authorization` 头；生产禁止 query token |
-| 入口验签 | Edge 在 Upgrade 前验签 JWT 和 origin |
+| Token 传递 | Web 客户端使用 HTTPS 认证会话换取一次性 `ws_ticket`；生产禁止 query access token |
+| 入口验签 | Edge 在 Upgrade 前校验 Origin、消费 `ws_ticket` 并还原 auth context |
 | 内部零信任 | Gateway 校验 Edge mTLS 身份和 auth context |
 | 连接上限 | Edge `max_conn`、Gateway `max_sessions` 双重限制 |
 | 黑名单 | v1.1 支持 `jwt:bl:{jti}` 实现登出后即时失效 |
@@ -619,6 +619,7 @@ RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge �
 | `config/edge/public_ws_url` | 公网 WebSocket 地址 | `wss://im.example.com/ws` |
 | `config/edge/ws.ping_interval` | 期望客户端 ping 间隔 | `30s` |
 | `config/edge/ws.read_timeout` | 读超时 | `60s` |
+| `config/edge/ws.ticket_ttl` | WebSocket 一次性 ticket TTL | `30s` |
 | `config/edge/max_conn` | 单实例最大客户端连接数 | `50000` |
 | `config/edge/upstream.connect_timeout` | 连接 Gateway 超时 | `2s` |
 | `config/edge/gateway.resume_timeout` | Gateway 切换恢复窗口 | `5s` |
@@ -768,7 +769,7 @@ flowchart LR
 | **etcd** | Gateway/Edge/Auth 服务注册；运行时配置与密钥 |
 | **RabbitMQ** | 领域事件；Notification -> Edge 下行通知 |
 
-中间件职责详见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)。
+中间件职责详见 [`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)。
 
 详见 [`docs/auth/DESIGN.md`](../auth/DESIGN.md)。
 
@@ -794,7 +795,7 @@ flowchart LR
 |------|------|
 | v1（当前） | Edge 代理 WebSocket；Gateway 内网上游；Presence 在线态；Notification 发布 RabbitMQ `push.edge` |
 | v1.1 | JWT 黑名单；Gateway rebind/resume；Presence 在线态清理任务；基础观测面板 |
-| v2 | Gateway 选择引入 rendezvous hash + 权重；Message 同步接口完善；Notification 离线推送 provider 完善；mTLS 自动证书轮换 |
+| v2 | Gateway 选择引入 rendezvous hash + 权重；Message 同步接口完善；Web Push / 移动 provider 扩展；mTLS 自动证书轮换 |
 | v3 | RS256 + JWKS；跨 region Edge；Gateway 多活；事件总线升级评估 |
 
 ---

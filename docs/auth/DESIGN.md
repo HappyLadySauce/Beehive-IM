@@ -2,7 +2,7 @@
 
 > 版本：v1.2
 > 适用范围：Auth 内网 gRPC 服务、公网认证入口代理、本地账号登录、GitHub OAuth2 授权码模式
-> 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)、[`proto/auth.proto`](../../proto/auth.proto)、[`sql/migrations/users/001_user.sql`](../../sql/migrations/users/001_user.sql)、[`sql/migrations/auth/002_auth.sql`](../../sql/migrations/auth/002_auth.sql)
+> 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`proto/auth.proto`](../../proto/auth.proto)、[`sql/migrations/users/001_user.sql`](../../sql/migrations/users/001_user.sql)、[`sql/migrations/auth/002_auth.sql`](../../sql/migrations/auth/002_auth.sql)
 
 ---
 
@@ -458,7 +458,7 @@ type OAuthState struct {
 | `config/auth/oauth.state_ttl` | Redis state TTL | `600s` |
 | `RABBITMQ_URL` | RabbitMQ 连接串（领域事件，可选） | `amqp://guest:guest@127.0.0.1:5672/` |
 
-etcd 与 Redis 分工见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)。本地基础设施见 [`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)（PostgreSQL、Redis、etcd、RabbitMQ）。
+etcd 与 Redis 分工见 [`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)。本地基础设施见 [`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)（PostgreSQL、Redis、etcd、RabbitMQ）。
 
 ---
 
@@ -512,8 +512,8 @@ flowchart LR
 - **User Service**（[`proto/user.proto`](../../proto/user.proto)）负责用户资料查询与后续更新，不处理认证
 - **Presence / Notification** 不直接回调 Auth；它们只使用 Edge、Message、Conversation 已校验链路传递的用户 ID 和服务身份
 - 下游服务从 gRPC metadata `authorization: Bearer {access_token}` 读取 JWT，**无需**每次 RPC 回调 Auth（除非要做实时 revoke 黑名单）
-- **Edge** 在公网 WebSocket 接入阶段本地验签 JWT；**Gateway** 校验 Edge 内部 auth context，详见 [`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)
-- **etcd / Redis / RabbitMQ** 职责见 [`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)
+- **Edge** 为 Web 客户端签发并消费一次性 `ws_ticket`，公网 WebSocket 不接收 query access token；**Gateway** 校验 Edge 内部 auth context，详见 [`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)
+- **etcd / Redis / RabbitMQ** 职责见 [`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)
 
 ---
 

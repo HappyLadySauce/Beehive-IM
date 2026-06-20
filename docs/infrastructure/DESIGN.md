@@ -2,7 +2,7 @@
 
 > 版本：v1.2
 > 适用范围：PostgreSQL、Redis、etcd、RabbitMQ、Conversation、Presence、Notification 的生产级职责划分、接口契约、数据流、容灾与运维约定
-> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)
+> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)
 
 ---
 
@@ -258,6 +258,7 @@ sequenceDiagram
 | `config/edge/public_ws_url` | `wss://im.example.com/ws` | 否 | 公网 WebSocket 入口 |
 | `config/edge/ws.ping_interval` | `30s` | 是 | 不得大于 read timeout 的 1/2 |
 | `config/edge/ws.read_timeout` | `60s` | 是 | 客户端连接读超时 |
+| `config/edge/ws.ticket_ttl` | `30s` | 是 | WebSocket 一次性 ticket TTL |
 | `config/edge/max_conn` | `50000` | 是 | 单 Edge 最大客户端连接数 |
 | `config/edge/gateway.resume_timeout` | `5s` | 是 | Gateway rebind 恢复窗口 |
 | `config/gateway/max_sessions` | `20000` | 是 | 单 Gateway 最大上游会话数 |
@@ -266,9 +267,12 @@ sequenceDiagram
 | `config/presence/stream_window` | `1024` | 是 | Presence 订阅流单连接窗口 |
 | `config/presence/cleanup.batch_size` | `1000` | 是 | 在线态孤儿索引清理批量 |
 | `config/message/outbox.batch_size` | `200` | 是 | 单批 outbox dispatch 数量 |
+| `config/message/sync.batch_size` | `200` | 是 | 单次消息同步返回上限 |
+| `config/message/max_content_bytes` | `8192` | 是 | 单条文本消息内容上限 |
+| `config/message/send.rate_limit_per_min` | `120` | 是 | 单用户发送限流 |
 | `config/notification/online_push_ttl` | `60s` | 是 | Edge 在线推送通知 TTL |
 | `config/notification/offline.enabled` | `true` | 是 | 是否启用离线厂商推送 |
-| `config/notification/provider.timeout` | `2s` | 是 | 单次离线 provider 调用超时 |
+| `config/notification/provider.timeout` | `2s` | 是 | 可选离线 provider 单次调用超时 |
 | `config/notification/dedupe_ttl` | `24h` | 是 | 通知事件去重窗口 |
 | `config/rabbitmq/url` | 部署写入 | 否 | 连接重建需滚动重启 |
 | `config/redis/addr` | 部署写入 | 否 | 连接重建需滚动重启 |
@@ -798,8 +802,9 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 | RabbitMQ | publish confirm latency、queue depth、consumer ack latency、DLQ count |
 | Edge | active connections、write buffer usage、push ack/nack、disconnect reason、upstream rebind count |
 | Gateway | active sessions、attach latency、resume latency、session reject count |
+| Message | send latency、sync latency、sync gap count、idempotent hit count、outbox pending/failed |
 | Presence | upsert latency、refresh lag、route lookup latency、stale route count、Redis script errors、cleanup duration |
-| Notification | event lag、dedupe hit count、online push success/fail、offline provider latency、rate limited count、DLQ count |
+| Notification | event lag、dedupe hit count、online push success/fail、optional provider latency、rate limited count、DLQ count |
 
 ### 9.3 告警建议
 
@@ -813,7 +818,7 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 | Redis stale presence | 残留连接比例超过 1% |
 | Presence route lookup latency | P95 超过 30ms 或 P99 超过 100ms |
 | Notification event lag | 连续 5 分钟超过在线推送 TTL 的 50% |
-| Notification offline provider failures | 5 分钟错误率超过 5% |
+| Notification optional provider failures | 启用 provider 时，5 分钟错误率超过 5% |
 | PostgreSQL 慢查询 | P95 超过 200ms 或 P99 超过 1s |
 
 ---
@@ -865,7 +870,7 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 
 - Notification consumer 必须设置有限 prefetch，并用有界 worker pool 编排在线/离线通知。
 - 在线 push 按 `edge_id` 聚合，减少 RabbitMQ publish 次数和 Edge 写放大。
-- 离线 provider 调用必须有超时、熔断、限流和失败降级，禁止阻塞在线 push。
+- 可选离线 provider 调用必须有超时、熔断、限流和失败降级，禁止阻塞在线 push。
 - 幂等去重以 `event_id + recipient_id + device_id` 为核心，避免 MQ 重投导致重复通知。
 
 ### 11.6 RabbitMQ
@@ -894,7 +899,7 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 | etcd Watch 丢事件 | Edge 绑定到失效 Gateway | Get 全量 + Watch revision；compacted 后重建视图 |
 | RabbitMQ 队列堆积 | 推送延迟升高 | Prefetch、背压、DLQ、告警、客户端同步补偿 |
 | Notification 堆积或重复消费 | 在线通知延迟、离线通知重复 | 独立 durable queue、幂等去重、限流、DLQ 和重放工具 |
-| 离线 provider 故障 | 移动端离线通知缺失或延迟 | Provider 超时、熔断、备用通道、失败记录和补偿任务 |
+| 可选离线 provider 故障 | 离线通知缺失或延迟，不影响 Web 消息同步 | Provider 超时、熔断、备用通道、失败记录和补偿任务 |
 | JWT secret 泄露 | Token 可伪造 | secret 最小权限、滚动重启轮换、短 TTL、黑名单 |
 | Redis 内存淘汰 | 在线态丢失 | 独立 Redis、内存告警、合理 eviction policy |
 
@@ -943,14 +948,16 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 
 - [ ] PostgreSQL 迁移可重复执行，staging 已验证。
 - [ ] Message 写入使用 `messages + outbox_events` 同事务。
+- [ ] Message 发送接口支持 `client_msg_id` 幂等，客户端可按 `conversation_id + seq` 补偿同步。
 - [ ] Outbox dispatcher 使用 publisher confirm，并有重试、DLQ、指标。
 - [ ] Presence 提供 `UpsertConnection`、`RefreshConnection`、`RebindGateway`、`RemoveConnection`、`GetLiveRoutes` API。
 - [ ] Presence 在线态写入、Gateway rebind、断开、续期使用 Lua 或事务，断开为 compare-and-delete。
 - [ ] Notification 消费 `message.created.#` 后完成幂等、偏好判断、Presence 路由查询和在线/离线分流。
-- [ ] Notification 在线 push、离线 provider、去重、限流、重试和 DLQ 均有指标与测试。
+- [ ] Notification 在线 push、去重、限流、重试和 DLQ 均有指标与测试；可选离线 provider 启用时补齐 provider 指标与测试。
 - [ ] Gateway 服务注册只写 etcd，不写 Redis 服务发现 key。
 - [ ] Edge Watch 使用全量加载 + revision 增量恢复。
 - [ ] `jwt.secret` v1 明确为滚动重启生效，不做热更新。
+- [ ] WebSocket 鉴权使用一次性 `ws_ticket`，生产禁止 query access token。
 - [ ] RabbitMQ Edge push 明确为在线通知，客户端具备消息补偿同步。
 - [ ] Edge -> Gateway 上游连接具备 deadline、背压、rebind/resume 和失败兜底重连。
 - [ ] 生产环境 TLS、RBAC、最小权限、secret 脱敏已配置。
@@ -964,5 +971,5 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 |------|------|
 | v1 | 四类中间件本地 compose；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Notification 在线 push；outbox 基线 |
 | v1.1 | JWT 黑名单；Gateway rebind/resume；Presence 清理任务；基础观测面板 |
-| v2 | etcd 3 节点 + TLS + RBAC；RabbitMQ Quorum Queue；gRPC etcd resolver；Message 同步接口完善；离线通知 provider 完善 |
+| v2 | etcd 3 节点 + TLS + RBAC；RabbitMQ Quorum Queue；gRPC etcd resolver；Message 同步接口完善；Web Push / 移动 provider 扩展 |
 | v3 | RS256 + JWKS；配置灰度；跨 region 路由；RabbitMQ federation 或替代事件总线评估 |

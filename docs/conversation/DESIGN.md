@@ -2,7 +2,7 @@
 
 > 版本：v1.0
 > 适用范围：会话、成员、权限、会话设置、通知偏好、消息序号分配协作
-> 关联文件：[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/infrastructure.md`](../infrastructure/infrastructure.md)
+> 关联文件：[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)
 
 ---
 
