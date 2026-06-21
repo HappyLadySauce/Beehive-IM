@@ -28,7 +28,7 @@ func NewAckMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AckMe
 // AckMessages records delivered/read receipts for message sequences.
 // AckMessages 记录消息序列的 delivered/read 回执。
 func (l *AckMessagesLogic) AckMessages(in *pb.AckMessagesRequest) (*pb.AckMessagesResponse, error) {
-	permission, err := l.svcCtx.Conversation.CheckSendPermission(l.ctx, &conversationservice.CheckSendPermissionRequest{
+	permission, err := l.svcCtx.Conversation.CheckReadPermission(l.ctx, &conversationservice.CheckReadPermissionRequest{
 		ConversationId: in.GetConversationId(),
 		UserId:         in.GetUserId(),
 	})

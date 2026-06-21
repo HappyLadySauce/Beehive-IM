@@ -1,0 +1,37 @@
+Name: beehiveim.notification.rpc
+ListenOn: 0.0.0.0:9500
+Env: dev
+Postgres:
+  DSN: ""
+  MaxConns: 20
+  MinConns: 2
+Redis:
+  Addr: ""
+  DB: 0
+  PoolSize: 20
+RabbitMQ:
+  URL: ""
+  Exchange: beehive.im.events
+  Prefetch: 64
+Conversation:
+  Endpoints:
+  - 127.0.0.1:9300
+  NonBlock: true
+  Timeout: 2000
+Presence:
+  Endpoints:
+  - 127.0.0.1:9200
+  NonBlock: true
+  Timeout: 2000
+Worker:
+  Enabled: true
+  Queue: notification.message.events
+  BindingKey: message.created.#
+  PushExchange: beehive.im.push
+  WorkerCount: 2
+  DedupeTTLSeconds: 86400
+  PublishTimeoutSeconds: 5
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: beehiveim.notification.rpc

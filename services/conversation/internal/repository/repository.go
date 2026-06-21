@@ -434,6 +434,65 @@ func (r *Repository) CheckSendPermission(ctx context.Context, conversationID, us
 	return requireSendPermission(ctx, r.db, normalizeID(conversationID), normalizeID(userID))
 }
 
+func (r *Repository) CheckReadPermission(ctx context.Context, conversationID, userID string) error {
+	if r == nil || r.db == nil {
+		return errors.New("conversation repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	userID = normalizeID(userID)
+	if conversationID == "" || userID == "" {
+		return fmt.Errorf("%w: conversation_id and user_id are required", ErrInvalidArgument)
+	}
+	return requireActiveMember(ctx, r.db, conversationID, userID)
+}
+
+func (r *Repository) ResolveMessageRecipients(ctx context.Context, conversationID string) ([]string, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("conversation repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	if conversationID == "" {
+		return nil, fmt.Errorf("%w: conversation_id is required", ErrInvalidArgument)
+	}
+
+	var status string
+	if err := r.db.QueryRow(ctx, `
+SELECT status
+FROM conversations
+WHERE conversation_id = $1 AND deleted_at IS NULL`, conversationID).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrConversationNotFound
+		}
+		return nil, fmt.Errorf("query conversation status: %w", err)
+	}
+	if status != StatusActive {
+		return nil, ErrConversationClosed
+	}
+
+	rows, err := r.db.Query(ctx, `
+SELECT user_id
+FROM conversation_members
+WHERE conversation_id = $1 AND status = 'active'
+ORDER BY joined_at ASC, user_id ASC`, conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("query message recipients: %w", err)
+	}
+	defer rows.Close()
+
+	recipients := make([]string, 0, 8)
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, fmt.Errorf("scan message recipient: %w", err)
+		}
+		recipients = append(recipients, userID)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan message recipients: %w", err)
+	}
+	return recipients, nil
+}
+
 func (r *Repository) AllocateSeq(ctx context.Context, conversationID, userID string) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, errors.New("conversation repository is not initialized")

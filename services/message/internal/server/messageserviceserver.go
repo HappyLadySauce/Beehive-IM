@@ -34,3 +34,15 @@ func (s *MessageServiceServer) AckMessages(ctx context.Context, in *pb.AckMessag
 	l := logic.NewAckMessagesLogic(ctx, s.svcCtx)
 	return l.AckMessages(in)
 }
+
+// ListMessages returns one conversation history page.
+func (s *MessageServiceServer) ListMessages(ctx context.Context, in *pb.ListMessagesRequest) (*pb.ListMessagesResponse, error) {
+	l := logic.NewListMessagesLogic(ctx, s.svcCtx)
+	return l.ListMessages(in)
+}
+
+// SyncMessages returns missing messages for multiple conversations.
+func (s *MessageServiceServer) SyncMessages(ctx context.Context, in *pb.SyncMessagesRequest) (*pb.SyncMessagesResponse, error) {
+	l := logic.NewSyncMessagesLogic(ctx, s.svcCtx)
+	return l.SyncMessages(in)
+}

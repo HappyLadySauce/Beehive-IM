@@ -227,6 +227,14 @@ func (f *fakeMessageService) AckMessages(ctx context.Context, in *messageservice
 	return &messageservice.AckMessagesResponse{Accepted: true}, nil
 }
 
+func (f *fakeMessageService) ListMessages(ctx context.Context, in *messageservice.ListMessagesRequest, opts ...grpc.CallOption) (*messageservice.ListMessagesResponse, error) {
+	return &messageservice.ListMessagesResponse{Accepted: true}, nil
+}
+
+func (f *fakeMessageService) SyncMessages(ctx context.Context, in *messageservice.SyncMessagesRequest, opts ...grpc.CallOption) (*messageservice.SyncMessagesResponse, error) {
+	return &messageservice.SyncMessagesResponse{Accepted: true}, nil
+}
+
 func assertErrorCode(t *testing.T, frame *pb.GatewayFrame, want string) {
 	t.Helper()
 

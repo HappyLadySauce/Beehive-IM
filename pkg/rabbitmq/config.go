@@ -77,9 +77,9 @@ func Dial(c Config) (*amqp.Connection, error) {
 	return conn, nil
 }
 
-// DeclarePushTopology declares the exchange and one edge queue.
-// DeclarePushTopology 声明 exchange 和一个 Edge 队列。
-func DeclarePushTopology(ch *amqp.Channel, exchange, queue string) error {
+// DeclarePushTopology declares the exchange and one edge queue binding.
+// DeclarePushTopology 声明 exchange 和一个 Edge 队列绑定。
+func DeclarePushTopology(ch *amqp.Channel, exchange, queue, routingKey string) error {
 	if ch == nil {
 		return errors.New("rabbitmq channel is nil")
 	}
@@ -89,13 +89,16 @@ func DeclarePushTopology(ch *amqp.Channel, exchange, queue string) error {
 	if queue == "" {
 		return errors.New("rabbitmq queue is required")
 	}
+	if routingKey == "" {
+		return errors.New("rabbitmq routing key is required")
+	}
 	if err := ch.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
 		return fmt.Errorf("declare rabbitmq exchange: %w", err)
 	}
 	if _, err := ch.QueueDeclare(queue, true, false, false, false, nil); err != nil {
 		return fmt.Errorf("declare rabbitmq queue: %w", err)
 	}
-	if err := ch.QueueBind(queue, queue, exchange, false, nil); err != nil {
+	if err := ch.QueueBind(queue, routingKey, exchange, false, nil); err != nil {
 		return fmt.Errorf("bind rabbitmq queue: %w", err)
 	}
 	return nil

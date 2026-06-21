@@ -12,6 +12,14 @@ service MessageService {
     // AckMessages records delivered/read receipts for message sequences.
     // AckMessages 记录消息序列的 delivered/read 回执。
     rpc AckMessages(AckMessagesRequest) returns (AckMessagesResponse);
+
+    // ListMessages returns one conversation history page.
+    // ListMessages 返回单个会话的一页历史消息。
+    rpc ListMessages(ListMessagesRequest) returns (ListMessagesResponse);
+
+    // SyncMessages returns missing messages for multiple conversations.
+    // SyncMessages 返回多个会话的缺口消息。
+    rpc SyncMessages(SyncMessagesRequest) returns (SyncMessagesResponse);
 }
 
 message SendMessageRequest {
@@ -50,4 +58,58 @@ message AckMessagesResponse {
     string error_code = 2;
     string message = 3;
     int32 updated = 4;
+}
+
+message MessageItem {
+    string message_id = 1;
+    string conversation_id = 2;
+    int64 seq = 3;
+    string sender_id = 4;
+    string device_id = 5;
+    string client_msg_id = 6;
+    int64 client_seq = 7;
+    string content_type = 8;
+    string content_json = 9;
+    string created_at = 10;
+}
+
+message ListMessagesRequest {
+    string conversation_id = 1;
+    string user_id = 2;
+    int64 after_seq = 3;
+    int64 before_seq = 4;
+    string direction = 5;
+    int32 limit = 6;
+}
+
+message ListMessagesResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    repeated MessageItem messages = 4;
+    int64 latest_seq = 5;
+}
+
+message ConversationCursor {
+    string conversation_id = 1;
+    int64 last_seq = 2;
+}
+
+message ConversationSyncResult {
+    string conversation_id = 1;
+    repeated MessageItem messages = 2;
+    int64 latest_seq = 3;
+}
+
+message SyncMessagesRequest {
+    string user_id = 1;
+    repeated ConversationCursor cursors = 2;
+    int32 limit_per_conversation = 3;
+}
+
+message SyncMessagesResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    repeated ConversationSyncResult conversations = 4;
 }

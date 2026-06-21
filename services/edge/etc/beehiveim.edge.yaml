@@ -28,6 +28,11 @@ Presence:
   - 127.0.0.1:9200
   NonBlock: true
   Timeout: 2000
+Message:
+  Endpoints:
+  - 127.0.0.1:9400
+  NonBlock: true
+  Timeout: 2000
 Registry:
   Endpoints:
   - 127.0.0.1:2379

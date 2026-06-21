@@ -20,6 +20,21 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: healthzHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodGet,
+				Path:    "/v1/conversations/:conversation_id/messages",
+				Handler: listMessagesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/messages/ack",
+				Handler: ackMessagesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/messages/sync",
+				Handler: syncMessagesHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/v1/ws/ticket",
 				Handler: createWsTicketHandler(serverCtx),

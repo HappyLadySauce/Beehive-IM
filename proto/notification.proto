@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package beehive_im.notification;
+
+option go_package = "./pb";
+
+service NotificationService {
+    // Health returns service liveness for operational checks.
+    // Health 返回服务存活状态，供运维探测使用。
+    rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message HealthRequest {
+}
+
+message HealthResponse {
+    string status = 1;
+}

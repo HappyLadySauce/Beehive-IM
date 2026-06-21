@@ -20,6 +20,27 @@ func TestNormalizeSeqsDropsInvalidAndDuplicateValues(t *testing.T) {
 	}
 }
 
+func TestNormalizeDirectionDefaultsFromCursor(t *testing.T) {
+	if got := normalizeDirection("", 10, 0); got != DirectionForward {
+		t.Fatalf("normalizeDirection() = %s, want forward", got)
+	}
+	if got := normalizeDirection("", 0, 10); got != DirectionBackward {
+		t.Fatalf("normalizeDirection() = %s, want backward", got)
+	}
+	if got := normalizeDirection("forward", 0, 0); got != DirectionForward {
+		t.Fatalf("normalizeDirection() = %s, want forward", got)
+	}
+}
+
+func TestNormalizeLimitCapsMessagePage(t *testing.T) {
+	if got := normalizeLimit(0); got != defaultListLimit {
+		t.Fatalf("normalizeLimit() = %d, want default", got)
+	}
+	if got := normalizeLimit(maxListLimit + 1); got != maxListLimit {
+		t.Fatalf("normalizeLimit() = %d, want max", got)
+	}
+}
+
 func TestCodeForErrorMapsInvalidArgument(t *testing.T) {
 	err := errors.Join(ErrInvalidArgument, errors.New("field is required"))
 	if got := CodeForError(err); got != CodeInvalidArgument {

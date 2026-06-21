@@ -13,7 +13,7 @@ GO           := go
 GOFLAGS      ?=
 GOLANGCI_LINT ?= golangci-lint
 BIN_DIR      := bin
-SERVICES     := auth user presence conversation message gateway edge
+SERVICES     := auth user presence conversation message notification gateway edge
 COMPOSE_FILE := docker/Infrastructure/docker-compose.yaml
 COMPOSE      := docker compose -f $(COMPOSE_FILE)
 

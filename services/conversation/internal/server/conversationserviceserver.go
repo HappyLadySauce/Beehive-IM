@@ -71,6 +71,18 @@ func (s *ConversationServiceServer) CheckSendPermission(ctx context.Context, in 
 	return l.CheckSendPermission(in)
 }
 
+// CheckReadPermission checks whether a user can read a conversation.
+func (s *ConversationServiceServer) CheckReadPermission(ctx context.Context, in *pb.CheckReadPermissionRequest) (*pb.CheckReadPermissionResponse, error) {
+	l := logic.NewCheckReadPermissionLogic(ctx, s.svcCtx)
+	return l.CheckReadPermission(in)
+}
+
+// ResolveMessageRecipients returns active users that should receive a message event.
+func (s *ConversationServiceServer) ResolveMessageRecipients(ctx context.Context, in *pb.ResolveMessageRecipientsRequest) (*pb.ResolveMessageRecipientsResponse, error) {
+	l := logic.NewResolveMessageRecipientsLogic(ctx, s.svcCtx)
+	return l.ResolveMessageRecipients(in)
+}
+
 // AllocateMessageSeq atomically allocates the next conversation message sequence.
 func (s *ConversationServiceServer) AllocateMessageSeq(ctx context.Context, in *pb.AllocateMessageSeqRequest) (*pb.AllocateMessageSeqResponse, error) {
 	l := logic.NewAllocateMessageSeqLogic(ctx, s.svcCtx)

@@ -18,6 +18,8 @@ type (
 	AddMembersResponse                 = pb.AddMembersResponse
 	AllocateMessageSeqRequest          = pb.AllocateMessageSeqRequest
 	AllocateMessageSeqResponse         = pb.AllocateMessageSeqResponse
+	CheckReadPermissionRequest         = pb.CheckReadPermissionRequest
+	CheckReadPermissionResponse        = pb.CheckReadPermissionResponse
 	CheckSendPermissionRequest         = pb.CheckSendPermissionRequest
 	CheckSendPermissionResponse        = pb.CheckSendPermissionResponse
 	Conversation                       = pb.Conversation
@@ -32,6 +34,8 @@ type (
 	MemberInput                        = pb.MemberInput
 	RemoveMembersRequest               = pb.RemoveMembersRequest
 	RemoveMembersResponse              = pb.RemoveMembersResponse
+	ResolveMessageRecipientsRequest    = pb.ResolveMessageRecipientsRequest
+	ResolveMessageRecipientsResponse   = pb.ResolveMessageRecipientsResponse
 	UpdateConversationSettingsRequest  = pb.UpdateConversationSettingsRequest
 	UpdateConversationSettingsResponse = pb.UpdateConversationSettingsResponse
 	UpdateMemberRoleRequest            = pb.UpdateMemberRoleRequest
@@ -54,6 +58,10 @@ type (
 		UpdateConversationSettings(ctx context.Context, in *UpdateConversationSettingsRequest, opts ...grpc.CallOption) (*UpdateConversationSettingsResponse, error)
 		// CheckSendPermission checks whether a user can send to a conversation.
 		CheckSendPermission(ctx context.Context, in *CheckSendPermissionRequest, opts ...grpc.CallOption) (*CheckSendPermissionResponse, error)
+		// CheckReadPermission checks whether a user can read a conversation.
+		CheckReadPermission(ctx context.Context, in *CheckReadPermissionRequest, opts ...grpc.CallOption) (*CheckReadPermissionResponse, error)
+		// ResolveMessageRecipients returns active users that should receive a message event.
+		ResolveMessageRecipients(ctx context.Context, in *ResolveMessageRecipientsRequest, opts ...grpc.CallOption) (*ResolveMessageRecipientsResponse, error)
 		// AllocateMessageSeq atomically allocates the next conversation message sequence.
 		AllocateMessageSeq(ctx context.Context, in *AllocateMessageSeqRequest, opts ...grpc.CallOption) (*AllocateMessageSeqResponse, error)
 	}
@@ -115,6 +123,18 @@ func (m *defaultConversationService) UpdateConversationSettings(ctx context.Cont
 func (m *defaultConversationService) CheckSendPermission(ctx context.Context, in *CheckSendPermissionRequest, opts ...grpc.CallOption) (*CheckSendPermissionResponse, error) {
 	client := pb.NewConversationServiceClient(m.cli.Conn())
 	return client.CheckSendPermission(ctx, in, opts...)
+}
+
+// CheckReadPermission checks whether a user can read a conversation.
+func (m *defaultConversationService) CheckReadPermission(ctx context.Context, in *CheckReadPermissionRequest, opts ...grpc.CallOption) (*CheckReadPermissionResponse, error) {
+	client := pb.NewConversationServiceClient(m.cli.Conn())
+	return client.CheckReadPermission(ctx, in, opts...)
+}
+
+// ResolveMessageRecipients returns active users that should receive a message event.
+func (m *defaultConversationService) ResolveMessageRecipients(ctx context.Context, in *ResolveMessageRecipientsRequest, opts ...grpc.CallOption) (*ResolveMessageRecipientsResponse, error) {
+	client := pb.NewConversationServiceClient(m.cli.Conn())
+	return client.ResolveMessageRecipients(ctx, in, opts...)
 }
 
 // AllocateMessageSeq atomically allocates the next conversation message sequence.

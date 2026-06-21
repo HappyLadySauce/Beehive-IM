@@ -27,6 +27,8 @@ const (
 	ConversationService_UpdateMemberRole_FullMethodName           = "/beehive_im.conversation.ConversationService/UpdateMemberRole"
 	ConversationService_UpdateConversationSettings_FullMethodName = "/beehive_im.conversation.ConversationService/UpdateConversationSettings"
 	ConversationService_CheckSendPermission_FullMethodName        = "/beehive_im.conversation.ConversationService/CheckSendPermission"
+	ConversationService_CheckReadPermission_FullMethodName        = "/beehive_im.conversation.ConversationService/CheckReadPermission"
+	ConversationService_ResolveMessageRecipients_FullMethodName   = "/beehive_im.conversation.ConversationService/ResolveMessageRecipients"
 	ConversationService_AllocateMessageSeq_FullMethodName         = "/beehive_im.conversation.ConversationService/AllocateMessageSeq"
 )
 
@@ -58,6 +60,12 @@ type ConversationServiceClient interface {
 	// CheckSendPermission checks whether a user can send to a conversation.
 	// CheckSendPermission 校验用户是否可向会话发送消息。
 	CheckSendPermission(ctx context.Context, in *CheckSendPermissionRequest, opts ...grpc.CallOption) (*CheckSendPermissionResponse, error)
+	// CheckReadPermission checks whether a user can read a conversation.
+	// CheckReadPermission 校验用户是否可读取会话消息。
+	CheckReadPermission(ctx context.Context, in *CheckReadPermissionRequest, opts ...grpc.CallOption) (*CheckReadPermissionResponse, error)
+	// ResolveMessageRecipients returns active users that should receive a message event.
+	// ResolveMessageRecipients 返回应接收消息事件的活跃用户。
+	ResolveMessageRecipients(ctx context.Context, in *ResolveMessageRecipientsRequest, opts ...grpc.CallOption) (*ResolveMessageRecipientsResponse, error)
 	// AllocateMessageSeq atomically allocates the next conversation message sequence.
 	// AllocateMessageSeq 原子分配下一个会话消息序列号。
 	AllocateMessageSeq(ctx context.Context, in *AllocateMessageSeqRequest, opts ...grpc.CallOption) (*AllocateMessageSeqResponse, error)
@@ -151,6 +159,26 @@ func (c *conversationServiceClient) CheckSendPermission(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *conversationServiceClient) CheckReadPermission(ctx context.Context, in *CheckReadPermissionRequest, opts ...grpc.CallOption) (*CheckReadPermissionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CheckReadPermissionResponse)
+	err := c.cc.Invoke(ctx, ConversationService_CheckReadPermission_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) ResolveMessageRecipients(ctx context.Context, in *ResolveMessageRecipientsRequest, opts ...grpc.CallOption) (*ResolveMessageRecipientsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveMessageRecipientsResponse)
+	err := c.cc.Invoke(ctx, ConversationService_ResolveMessageRecipients_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *conversationServiceClient) AllocateMessageSeq(ctx context.Context, in *AllocateMessageSeqRequest, opts ...grpc.CallOption) (*AllocateMessageSeqResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(AllocateMessageSeqResponse)
@@ -189,6 +217,12 @@ type ConversationServiceServer interface {
 	// CheckSendPermission checks whether a user can send to a conversation.
 	// CheckSendPermission 校验用户是否可向会话发送消息。
 	CheckSendPermission(context.Context, *CheckSendPermissionRequest) (*CheckSendPermissionResponse, error)
+	// CheckReadPermission checks whether a user can read a conversation.
+	// CheckReadPermission 校验用户是否可读取会话消息。
+	CheckReadPermission(context.Context, *CheckReadPermissionRequest) (*CheckReadPermissionResponse, error)
+	// ResolveMessageRecipients returns active users that should receive a message event.
+	// ResolveMessageRecipients 返回应接收消息事件的活跃用户。
+	ResolveMessageRecipients(context.Context, *ResolveMessageRecipientsRequest) (*ResolveMessageRecipientsResponse, error)
 	// AllocateMessageSeq atomically allocates the next conversation message sequence.
 	// AllocateMessageSeq 原子分配下一个会话消息序列号。
 	AllocateMessageSeq(context.Context, *AllocateMessageSeqRequest) (*AllocateMessageSeqResponse, error)
@@ -225,6 +259,12 @@ func (UnimplementedConversationServiceServer) UpdateConversationSettings(context
 }
 func (UnimplementedConversationServiceServer) CheckSendPermission(context.Context, *CheckSendPermissionRequest) (*CheckSendPermissionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CheckSendPermission not implemented")
+}
+func (UnimplementedConversationServiceServer) CheckReadPermission(context.Context, *CheckReadPermissionRequest) (*CheckReadPermissionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CheckReadPermission not implemented")
+}
+func (UnimplementedConversationServiceServer) ResolveMessageRecipients(context.Context, *ResolveMessageRecipientsRequest) (*ResolveMessageRecipientsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ResolveMessageRecipients not implemented")
 }
 func (UnimplementedConversationServiceServer) AllocateMessageSeq(context.Context, *AllocateMessageSeqRequest) (*AllocateMessageSeqResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AllocateMessageSeq not implemented")
@@ -394,6 +434,42 @@ func _ConversationService_CheckSendPermission_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConversationService_CheckReadPermission_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CheckReadPermissionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).CheckReadPermission(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_CheckReadPermission_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).CheckReadPermission(ctx, req.(*CheckReadPermissionRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_ResolveMessageRecipients_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveMessageRecipientsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).ResolveMessageRecipients(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_ResolveMessageRecipients_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).ResolveMessageRecipients(ctx, req.(*ResolveMessageRecipientsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ConversationService_AllocateMessageSeq_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AllocateMessageSeqRequest)
 	if err := dec(in); err != nil {
@@ -450,6 +526,14 @@ var ConversationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CheckSendPermission",
 			Handler:    _ConversationService_CheckSendPermission_Handler,
+		},
+		{
+			MethodName: "CheckReadPermission",
+			Handler:    _ConversationService_CheckReadPermission_Handler,
+		},
+		{
+			MethodName: "ResolveMessageRecipients",
+			Handler:    _ConversationService_ResolveMessageRecipients_Handler,
 		},
 		{
 			MethodName: "AllocateMessageSeq",

@@ -37,6 +37,15 @@ func TestFramePayloadDefaultsEmptyPayload(t *testing.T) {
 	}
 }
 
+func TestQueueAndRoutingKeyAreSeparated(t *testing.T) {
+	if got := queueName("edge-1"); got != "edge.push.edge-1" {
+		t.Fatalf("queueName() = %s", got)
+	}
+	if got := routingKey("edge-1"); got != "push.edge.edge-1" {
+		t.Fatalf("routingKey() = %s", got)
+	}
+}
+
 func TestConsumerStopIsIdempotent(t *testing.T) {
 	consumer := NewConsumer("edge-1", zeroRabbitConfig(), nil)
 	consumer.Stop()

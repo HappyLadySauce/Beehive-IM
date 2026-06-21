@@ -21,6 +21,7 @@ type Config struct {
 	Gateway            zrpc.RpcClientConf
 	GatewayRecovery    GatewayRecoveryConf
 	Presence           zrpc.RpcClientConf
+	Message            zrpc.RpcClientConf
 	Registry           pkgetcd.Config
 	RabbitMQ           pkgrabbitmq.Config
 }

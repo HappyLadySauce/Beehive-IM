@@ -14,6 +14,7 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/upstream"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/wsproxy"
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/gatewayservice"
+	"github.com/HappyLadySauce/Beehive-IM/services/message/messageservice"
 	"github.com/HappyLadySauce/Beehive-IM/services/presence/presenceservice"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/zrpc"
@@ -22,6 +23,7 @@ import (
 type ServiceContext struct {
 	Config   config.Config
 	Gateway  gatewayservice.GatewayService
+	Message  messageservice.MessageService
 	Presence presence.Client
 	Tickets  *ticket.Store
 	Proxy    *wsproxy.Proxy
@@ -37,6 +39,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 
 	tickets := ticket.NewStore(ttl)
 	gateway := gatewayservice.NewGatewayService(zrpc.MustNewClient(c.Gateway))
+	message := messageservice.NewMessageService(zrpc.MustNewClient(c.Message))
 	etcdConfig := c.Registry
 	if etcdConfig.Env == "" {
 		etcdConfig.Env = c.Env
@@ -87,6 +90,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	return &ServiceContext{
 		Config:   c,
 		Gateway:  gateway,
+		Message:  message,
 		Presence: presenceClient,
 		Tickets:  tickets,
 		Proxy:    proxy,

@@ -34,6 +34,29 @@ func messageResponse(msg repository.Message, duplicate bool) *pb.SendMessageResp
 	}
 }
 
+func messageItemPB(msg repository.Message) *pb.MessageItem {
+	return &pb.MessageItem{
+		MessageId:      msg.MessageID,
+		ConversationId: msg.ConversationID,
+		Seq:            msg.Seq,
+		SenderId:       msg.SenderID,
+		DeviceId:       msg.DeviceID,
+		ClientMsgId:    msg.ClientMsgID,
+		ClientSeq:      msg.ClientSeq,
+		ContentType:    msg.ContentType,
+		ContentJson:    string(msg.ContentJSON),
+		CreatedAt:      msg.CreatedAt.UTC().Format(timeFormat),
+	}
+}
+
+func messageItemsPB(messages []repository.Message) []*pb.MessageItem {
+	out := make([]*pb.MessageItem, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, messageItemPB(msg))
+	}
+	return out
+}
+
 func normalizeContent(contentType, contentJSON string) (string, []byte, error) {
 	contentType = strings.ToLower(strings.TrimSpace(contentType))
 	if contentType == "" {
@@ -104,6 +127,28 @@ func ackRejected(code, message string) *pb.AckMessagesResponse {
 		code = repository.CodeInvalidArgument
 	}
 	return &pb.AckMessagesResponse{
+		Accepted:  false,
+		ErrorCode: code,
+		Message:   message,
+	}
+}
+
+func listRejected(code, message string) *pb.ListMessagesResponse {
+	if code == "" {
+		code = repository.CodeInvalidArgument
+	}
+	return &pb.ListMessagesResponse{
+		Accepted:  false,
+		ErrorCode: code,
+		Message:   message,
+	}
+}
+
+func syncRejected(code, message string) *pb.SyncMessagesResponse {
+	if code == "" {
+		code = repository.CodeInvalidArgument
+	}
+	return &pb.SyncMessagesResponse{
 		Accepted:  false,
 		ErrorCode: code,
 		Message:   message,

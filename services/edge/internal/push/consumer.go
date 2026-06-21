@@ -21,8 +21,8 @@ type Message struct {
 	Payload   json.RawMessage `json:"payload"`
 }
 
-// Consumer consumes edge.push.{edge_id} and writes to local WebSocket queues.
-// Consumer 消费 edge.push.{edge_id} 并写入本机 WebSocket 队列。
+// Consumer consumes push.edge.{edge_id} and writes to local WebSocket queues.
+// Consumer 消费 push.edge.{edge_id} 并写入本机 WebSocket 队列。
 type Consumer struct {
 	config pkgrabbitmq.Config
 	edgeID string
@@ -60,7 +60,8 @@ func (c *Consumer) Stop() {
 
 func (c *Consumer) run(ctx context.Context) {
 	cfg := c.config.Normalize()
-	queue := "edge.push." + c.edgeID
+	queue := queueName(c.edgeID)
+	routingKey := routingKey(c.edgeID)
 	for {
 		select {
 		case <-ctx.Done():
@@ -70,7 +71,7 @@ func (c *Consumer) run(ctx context.Context) {
 		default:
 		}
 
-		if err := c.consumeOnce(ctx, cfg, queue); err != nil {
+		if err := c.consumeOnce(ctx, cfg, queue, routingKey); err != nil {
 			logx.Errorf("edge push consumer stopped: %v", err)
 		}
 
@@ -84,7 +85,7 @@ func (c *Consumer) run(ctx context.Context) {
 	}
 }
 
-func (c *Consumer) consumeOnce(ctx context.Context, cfg pkgrabbitmq.Config, queue string) error {
+func (c *Consumer) consumeOnce(ctx context.Context, cfg pkgrabbitmq.Config, queue, routingKey string) error {
 	conn, err := pkgrabbitmq.Dial(cfg)
 	if err != nil {
 		return err
@@ -97,7 +98,7 @@ func (c *Consumer) consumeOnce(ctx context.Context, cfg pkgrabbitmq.Config, queu
 	}
 	defer ch.Close()
 
-	if err := pkgrabbitmq.DeclarePushTopology(ch, cfg.Exchange, queue); err != nil {
+	if err := pkgrabbitmq.DeclarePushTopology(ch, cfg.Exchange, queue, routingKey); err != nil {
 		return err
 	}
 	if err := ch.Qos(cfg.Prefetch, 0, false); err != nil {
@@ -162,4 +163,12 @@ func ack(delivery amqp.Delivery) {
 	if delivery.Acknowledger != nil {
 		_ = delivery.Ack(false)
 	}
+}
+
+func queueName(edgeID string) string {
+	return "edge.push." + edgeID
+}
+
+func routingKey(edgeID string) string {
+	return "push.edge." + edgeID
 }

@@ -19,12 +19,18 @@ const (
 	AckTypeDelivered = "delivered"
 	AckTypeRead      = "read"
 
+	DirectionForward  = "forward"
+	DirectionBackward = "backward"
+
 	OutboxStatusPending   = "pending"
 	OutboxStatusPublished = "published"
 	OutboxStatusFailed    = "failed"
 
 	CodeInvalidArgument = "INVALID_ARGUMENT"
 	CodeInternal        = "INTERNAL_ERROR"
+
+	defaultListLimit = 50
+	maxListLimit     = 200
 )
 
 var ErrInvalidArgument = errors.New("invalid argument")
@@ -227,6 +233,91 @@ DO UPDATE SET delivered_at = COALESCE(message_receipts.delivered_at, EXCLUDED.de
 	return int32(updated), nil
 }
 
+func (r *Repository) ListMessages(ctx context.Context, conversationID string, afterSeq, beforeSeq int64, direction string, limit int32) ([]Message, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, errors.New("message repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	direction = normalizeDirection(direction, afterSeq, beforeSeq)
+	limit = normalizeLimit(limit)
+	if conversationID == "" {
+		return nil, 0, fmt.Errorf("%w: conversation_id is required", ErrInvalidArgument)
+	}
+	if afterSeq < 0 || beforeSeq < 0 {
+		return nil, 0, fmt.Errorf("%w: message sequence cursor cannot be negative", ErrInvalidArgument)
+	}
+	if direction != DirectionForward && direction != DirectionBackward {
+		return nil, 0, fmt.Errorf("%w: unsupported direction", ErrInvalidArgument)
+	}
+
+	latestSeq, err := r.LatestSeq(ctx, conversationID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var rows pgx.Rows
+	if direction == DirectionForward {
+		rows, err = r.db.Query(ctx, `
+SELECT message_id, conversation_id, seq, sender_id, device_id, client_msg_id, client_seq, content_type, content_json, created_at
+FROM messages
+WHERE conversation_id = $1
+  AND deleted_at IS NULL
+  AND ($2::bigint <= 0 OR seq > $2::bigint)
+  AND ($3::bigint <= 0 OR seq < $3::bigint)
+ORDER BY seq ASC
+LIMIT $4`, conversationID, afterSeq, beforeSeq, limit)
+	} else {
+		rows, err = r.db.Query(ctx, `
+SELECT message_id, conversation_id, seq, sender_id, device_id, client_msg_id, client_seq, content_type, content_json, created_at
+FROM (
+    SELECT message_id, conversation_id, seq, sender_id, device_id, client_msg_id, client_seq, content_type, content_json, created_at
+    FROM messages
+    WHERE conversation_id = $1
+      AND deleted_at IS NULL
+      AND ($2::bigint <= 0 OR seq > $2::bigint)
+      AND ($3::bigint <= 0 OR seq < $3::bigint)
+    ORDER BY seq DESC
+    LIMIT $4
+) picked
+ORDER BY seq ASC`, conversationID, afterSeq, beforeSeq, limit)
+	}
+	if err != nil {
+		return nil, 0, fmt.Errorf("query messages: %w", err)
+	}
+	defer rows.Close()
+
+	messages := make([]Message, 0, limit)
+	for rows.Next() {
+		msg, err := scanMessage(rows)
+		if err != nil {
+			return nil, 0, fmt.Errorf("scan message: %w", err)
+		}
+		messages = append(messages, msg)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("scan messages: %w", err)
+	}
+	return messages, latestSeq, nil
+}
+
+func (r *Repository) LatestSeq(ctx context.Context, conversationID string) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("message repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	if conversationID == "" {
+		return 0, fmt.Errorf("%w: conversation_id is required", ErrInvalidArgument)
+	}
+	var seq int64
+	if err := r.db.QueryRow(ctx, `
+SELECT COALESCE(MAX(seq), 0)
+FROM messages
+WHERE conversation_id = $1 AND deleted_at IS NULL`, conversationID).Scan(&seq); err != nil {
+		return 0, fmt.Errorf("query latest message sequence: %w", err)
+	}
+	return seq, nil
+}
+
 func (r *Repository) FetchPendingOutbox(ctx context.Context, limit int, lockTTL time.Duration) ([]OutboxEvent, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("message repository is not initialized")
@@ -406,6 +497,27 @@ func normalizeSeqs(values []int64) []int64 {
 		out = append(out, value)
 	}
 	return out
+}
+
+func normalizeDirection(direction string, afterSeq, beforeSeq int64) string {
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	if direction == "" {
+		if afterSeq > 0 {
+			return DirectionForward
+		}
+		return DirectionBackward
+	}
+	return direction
+}
+
+func normalizeLimit(limit int32) int32 {
+	if limit <= 0 {
+		return defaultListLimit
+	}
+	if limit > maxListLimit {
+		return maxListLimit
+	}
+	return limit
 }
 
 func CodeForError(err error) string {

@@ -14,16 +14,27 @@ import (
 )
 
 type (
-	AckMessagesRequest  = pb.AckMessagesRequest
-	AckMessagesResponse = pb.AckMessagesResponse
-	SendMessageRequest  = pb.SendMessageRequest
-	SendMessageResponse = pb.SendMessageResponse
+	AckMessagesRequest     = pb.AckMessagesRequest
+	AckMessagesResponse    = pb.AckMessagesResponse
+	ConversationCursor     = pb.ConversationCursor
+	ConversationSyncResult = pb.ConversationSyncResult
+	ListMessagesRequest    = pb.ListMessagesRequest
+	ListMessagesResponse   = pb.ListMessagesResponse
+	MessageItem            = pb.MessageItem
+	SendMessageRequest     = pb.SendMessageRequest
+	SendMessageResponse    = pb.SendMessageResponse
+	SyncMessagesRequest    = pb.SyncMessagesRequest
+	SyncMessagesResponse   = pb.SyncMessagesResponse
 
 	MessageService interface {
 		// SendMessage validates permissions and persists one client message.
 		SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*SendMessageResponse, error)
 		// AckMessages records delivered/read receipts for message sequences.
 		AckMessages(ctx context.Context, in *AckMessagesRequest, opts ...grpc.CallOption) (*AckMessagesResponse, error)
+		// ListMessages returns one conversation history page.
+		ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error)
+		// SyncMessages returns missing messages for multiple conversations.
+		SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error)
 	}
 
 	defaultMessageService struct {
@@ -47,4 +58,16 @@ func (m *defaultMessageService) SendMessage(ctx context.Context, in *SendMessage
 func (m *defaultMessageService) AckMessages(ctx context.Context, in *AckMessagesRequest, opts ...grpc.CallOption) (*AckMessagesResponse, error) {
 	client := pb.NewMessageServiceClient(m.cli.Conn())
 	return client.AckMessages(ctx, in, opts...)
+}
+
+// ListMessages returns one conversation history page.
+func (m *defaultMessageService) ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error) {
+	client := pb.NewMessageServiceClient(m.cli.Conn())
+	return client.ListMessages(ctx, in, opts...)
+}
+
+// SyncMessages returns missing messages for multiple conversations.
+func (m *defaultMessageService) SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error) {
+	client := pb.NewMessageServiceClient(m.cli.Conn())
+	return client.SyncMessages(ctx, in, opts...)
 }

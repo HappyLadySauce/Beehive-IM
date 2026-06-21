@@ -37,6 +37,14 @@ service ConversationService {
     // CheckSendPermission 校验用户是否可向会话发送消息。
     rpc CheckSendPermission(CheckSendPermissionRequest) returns (CheckSendPermissionResponse);
 
+    // CheckReadPermission checks whether a user can read a conversation.
+    // CheckReadPermission 校验用户是否可读取会话消息。
+    rpc CheckReadPermission(CheckReadPermissionRequest) returns (CheckReadPermissionResponse);
+
+    // ResolveMessageRecipients returns active users that should receive a message event.
+    // ResolveMessageRecipients 返回应接收消息事件的活跃用户。
+    rpc ResolveMessageRecipients(ResolveMessageRecipientsRequest) returns (ResolveMessageRecipientsResponse);
+
     // AllocateMessageSeq atomically allocates the next conversation message sequence.
     // AllocateMessageSeq 原子分配下一个会话消息序列号。
     rpc AllocateMessageSeq(AllocateMessageSeqRequest) returns (AllocateMessageSeqResponse);
@@ -181,6 +189,29 @@ message CheckSendPermissionResponse {
     bool allowed = 1;
     string error_code = 2;
     string message = 3;
+}
+
+message CheckReadPermissionRequest {
+    string conversation_id = 1;
+    string user_id = 2;
+}
+
+message CheckReadPermissionResponse {
+    bool allowed = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message ResolveMessageRecipientsRequest {
+    string conversation_id = 1;
+    string sender_id = 2;
+}
+
+message ResolveMessageRecipientsResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    repeated string user_ids = 4;
 }
 
 message AllocateMessageSeqRequest {

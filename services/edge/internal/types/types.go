@@ -3,8 +3,73 @@
 
 package types
 
+type AckMessagesRequest struct {
+	ConversationId string  `json:"conversation_id"`
+	AckType        string  `json:"ack_type"`
+	Seqs           []int64 `json:"seqs"`
+}
+
+type AckMessagesResponse struct {
+	Accepted  bool   `json:"accepted"`
+	ErrorCode string `json:"error_code,optional"`
+	Message   string `json:"message"`
+	Updated   int32  `json:"updated"`
+}
+
+type ConversationCursor struct {
+	ConversationId string `json:"conversation_id"`
+	LastSeq        int64  `json:"last_seq"`
+}
+
+type ConversationSyncResult struct {
+	ConversationId string        `json:"conversation_id"`
+	Messages       []MessageItem `json:"messages"`
+	LatestSeq      int64         `json:"latest_seq"`
+}
+
 type HealthResponse struct {
 	Status string `json:"status"`
+}
+
+type ListMessagesRequest struct {
+	ConversationId string `path:"conversation_id"`
+	AfterSeq       int64  `form:"after_seq,optional"`
+	BeforeSeq      int64  `form:"before_seq,optional"`
+	Direction      string `form:"direction,optional"`
+	Limit          int32  `form:"limit,optional"`
+}
+
+type ListMessagesResponse struct {
+	Accepted  bool          `json:"accepted"`
+	ErrorCode string        `json:"error_code,optional"`
+	Message   string        `json:"message"`
+	Messages  []MessageItem `json:"messages"`
+	LatestSeq int64         `json:"latest_seq"`
+}
+
+type MessageItem struct {
+	MessageId      string `json:"message_id"`
+	ConversationId string `json:"conversation_id"`
+	Seq            int64  `json:"seq"`
+	SenderId       string `json:"sender_id"`
+	DeviceId       string `json:"device_id"`
+	ClientMsgId    string `json:"client_msg_id"`
+	ClientSeq      int64  `json:"client_seq"`
+	ContentType    string `json:"content_type"`
+	ContentJson    string `json:"content_json"`
+	CreatedAt      string `json:"created_at"`
+}
+
+type SyncMessagesRequest struct {
+	Cursors              []ConversationCursor `json:"cursors"`
+	LimitPerConversation int32                `json:"limit_per_conversation,optional"`
+}
+
+type SyncMessagesResponse struct {
+	Accepted      bool                     `json:"accepted"`
+	ErrorCode     string                   `json:"error_code,optional"`
+	Message       string                   `json:"message"`
+	Conversations []ConversationSyncResult `json:"conversations"`
 }
 
 type TicketRequest struct {

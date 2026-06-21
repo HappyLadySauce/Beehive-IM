@@ -19,8 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MessageService_SendMessage_FullMethodName = "/beehive_im.message.MessageService/SendMessage"
-	MessageService_AckMessages_FullMethodName = "/beehive_im.message.MessageService/AckMessages"
+	MessageService_SendMessage_FullMethodName  = "/beehive_im.message.MessageService/SendMessage"
+	MessageService_AckMessages_FullMethodName  = "/beehive_im.message.MessageService/AckMessages"
+	MessageService_ListMessages_FullMethodName = "/beehive_im.message.MessageService/ListMessages"
+	MessageService_SyncMessages_FullMethodName = "/beehive_im.message.MessageService/SyncMessages"
 )
 
 // MessageServiceClient is the client API for MessageService service.
@@ -33,6 +35,12 @@ type MessageServiceClient interface {
 	// AckMessages records delivered/read receipts for message sequences.
 	// AckMessages 记录消息序列的 delivered/read 回执。
 	AckMessages(ctx context.Context, in *AckMessagesRequest, opts ...grpc.CallOption) (*AckMessagesResponse, error)
+	// ListMessages returns one conversation history page.
+	// ListMessages 返回单个会话的一页历史消息。
+	ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error)
+	// SyncMessages returns missing messages for multiple conversations.
+	// SyncMessages 返回多个会话的缺口消息。
+	SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error)
 }
 
 type messageServiceClient struct {
@@ -63,6 +71,26 @@ func (c *messageServiceClient) AckMessages(ctx context.Context, in *AckMessagesR
 	return out, nil
 }
 
+func (c *messageServiceClient) ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMessagesResponse)
+	err := c.cc.Invoke(ctx, MessageService_ListMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *messageServiceClient) SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SyncMessagesResponse)
+	err := c.cc.Invoke(ctx, MessageService_SyncMessages_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MessageServiceServer is the server API for MessageService service.
 // All implementations must embed UnimplementedMessageServiceServer
 // for forward compatibility.
@@ -73,6 +101,12 @@ type MessageServiceServer interface {
 	// AckMessages records delivered/read receipts for message sequences.
 	// AckMessages 记录消息序列的 delivered/read 回执。
 	AckMessages(context.Context, *AckMessagesRequest) (*AckMessagesResponse, error)
+	// ListMessages returns one conversation history page.
+	// ListMessages 返回单个会话的一页历史消息。
+	ListMessages(context.Context, *ListMessagesRequest) (*ListMessagesResponse, error)
+	// SyncMessages returns missing messages for multiple conversations.
+	// SyncMessages 返回多个会话的缺口消息。
+	SyncMessages(context.Context, *SyncMessagesRequest) (*SyncMessagesResponse, error)
 	mustEmbedUnimplementedMessageServiceServer()
 }
 
@@ -88,6 +122,12 @@ func (UnimplementedMessageServiceServer) SendMessage(context.Context, *SendMessa
 }
 func (UnimplementedMessageServiceServer) AckMessages(context.Context, *AckMessagesRequest) (*AckMessagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method AckMessages not implemented")
+}
+func (UnimplementedMessageServiceServer) ListMessages(context.Context, *ListMessagesRequest) (*ListMessagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListMessages not implemented")
+}
+func (UnimplementedMessageServiceServer) SyncMessages(context.Context, *SyncMessagesRequest) (*SyncMessagesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SyncMessages not implemented")
 }
 func (UnimplementedMessageServiceServer) mustEmbedUnimplementedMessageServiceServer() {}
 func (UnimplementedMessageServiceServer) testEmbeddedByValue()                        {}
@@ -146,6 +186,42 @@ func _MessageService_AckMessages_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MessageService_ListMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).ListMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_ListMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).ListMessages(ctx, req.(*ListMessagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MessageService_SyncMessages_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SyncMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).SyncMessages(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_SyncMessages_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).SyncMessages(ctx, req.(*SyncMessagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MessageService_ServiceDesc is the grpc.ServiceDesc for MessageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -160,6 +236,14 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AckMessages",
 			Handler:    _MessageService_AckMessages_Handler,
+		},
+		{
+			MethodName: "ListMessages",
+			Handler:    _MessageService_ListMessages_Handler,
+		},
+		{
+			MethodName: "SyncMessages",
+			Handler:    _MessageService_SyncMessages_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
