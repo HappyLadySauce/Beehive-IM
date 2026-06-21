@@ -132,19 +132,30 @@ func NewProxy(c Config) *Proxy {
 	}
 }
 
+// ServeHTTP handles the Edge WebSocket upgrade path: validate ticket, bind upstream
+// Gateway session, then run a three-goroutine bidirectional proxy until disconnect.
+// ServeHTTP 处理 Edge WebSocket 升级入口：校验 ticket、绑定上游 Gateway 会话，
+// 再启动三协程双向代理，直至连接断开。
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Phase 1: one-time ticket consumption (binds session/user/device, checks Origin).
+	// 阶段 1：一次性消费 ticket（绑定 session/user/device，并校验 Origin）。
 	t, err := p.tickets.Consume(r.URL.Query().Get("ticket"), r.Header.Get("Origin"))
 	if err != nil {
 		http.Error(w, "Invalid websocket ticket", http.StatusUnauthorized)
 		return
 	}
 
+	// Phase 2: allocate a unique connection id for this WebSocket leg.
+	// 阶段 2：为本 WebSocket 连接分配唯一 conn_id。
 	connID := "conn-" + randomToken(12)
 	if p.gatewayRouter == nil {
 		http.Error(w, "Gateway client is unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
+	// Phase 3: pick a Gateway instance and attach the session before HTTP upgrade.
+	// All upstream setup must finish while the response is still plain HTTP.
+	// 阶段 3：在 HTTP 升级前选择 Gateway 并完成 Attach；上游准备必须在仍为 HTTP 响应时完成。
 	endpoint, err := p.pickGateway(r.Context())
 	if err != nil {
 		http.Error(w, "Gateway selection failed", http.StatusServiceUnavailable)
@@ -161,6 +172,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	endpoint.gatewayID = gatewayID(attach.GetGatewayId(), endpoint.gatewayID)
 
+	// Phase 4: register connection metadata in presence for routing and TTL refresh.
+	// 阶段 4：在 presence 中登记连接元数据，供路由与 TTL 续期使用。
 	if err := p.presence.UpsertConnection(r.Context(), presence.ConnectionMeta{
 		SessionID: t.SessionID,
 		ConnID:    connID,
@@ -174,6 +187,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Phase 5: upgrade to WebSocket; roll back Gateway session and presence on failure.
+	// 阶段 5：升级为 WebSocket；失败时回滚 Gateway 会话与 presence。
 	ws, err := p.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		p.closeGatewaySession(endpoint.gateway, t, connID, "websocket_upgrade_failed")
@@ -183,6 +198,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer ws.Close()
 	defer p.removePresence(t, connID)
 
+	// Phase 6: configure keepalive and send the first server frame to the client.
+	// 阶段 6：配置保活，并向客户端发送首帧 session.connected。
 	ws.SetReadLimit(p.readLimitBytes)
 	ws.SetReadDeadline(time.Now().Add(pongWait))
 	ws.SetPongHandler(func(string) error {
@@ -201,6 +218,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Phase 7: start the proxy pipeline.
+	//   readWebSocket  -> inbound  -> runGateway -> outbound -> writeWebSocket
+	// runGateway also handles gRPC Stream, rebind, and hub-driven gateway migration.
+	// 阶段 7：启动代理流水线。
+	//   readWebSocket -> inbound -> runGateway -> outbound -> writeWebSocket
+	// runGateway 还负责 gRPC Stream、重绑与 hub 触发的 Gateway 迁移。
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
 
@@ -219,6 +242,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}, inbound, outbound, control, errCh)
 	go p.writeWebSocket(ctx, ws, outbound, errCh)
 
+	// Phase 8: block until any leg fails; cancel siblings and close abnormally if needed.
+	// 阶段 8：阻塞直至任一协程出错；取消其余协程，必要时发送异常关闭帧。
 	err = <-errCh
 	cancel()
 	if err != nil && !isExpectedClose(err) {
