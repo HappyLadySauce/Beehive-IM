@@ -1,0 +1,196 @@
+syntax = "proto3";
+
+package beehive_im.conversation;
+
+option go_package = "./pb";
+
+service ConversationService {
+    // CreateConversation creates a conversation and initial members.
+    // CreateConversation 创建会话和初始成员。
+    rpc CreateConversation(CreateConversationRequest) returns (CreateConversationResponse);
+
+    // GetConversation returns one conversation with members and user settings.
+    // GetConversation 返回单个会话、成员和用户设置。
+    rpc GetConversation(GetConversationRequest) returns (GetConversationResponse);
+
+    // ListConversations returns conversations joined by one user.
+    // ListConversations 返回某个用户加入的会话列表。
+    rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse);
+
+    // AddMembers adds or reactivates members in a conversation.
+    // AddMembers 在会话中新增或重新激活成员。
+    rpc AddMembers(AddMembersRequest) returns (AddMembersResponse);
+
+    // RemoveMembers marks members as removed from a conversation.
+    // RemoveMembers 将成员标记为已移出会话。
+    rpc RemoveMembers(RemoveMembersRequest) returns (RemoveMembersResponse);
+
+    // UpdateMemberRole changes one member role.
+    // UpdateMemberRole 修改单个成员角色。
+    rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
+
+    // UpdateConversationSettings updates settings owned by one user.
+    // UpdateConversationSettings 更新某个用户自己的会话设置。
+    rpc UpdateConversationSettings(UpdateConversationSettingsRequest) returns (UpdateConversationSettingsResponse);
+
+    // CheckSendPermission checks whether a user can send to a conversation.
+    // CheckSendPermission 校验用户是否可向会话发送消息。
+    rpc CheckSendPermission(CheckSendPermissionRequest) returns (CheckSendPermissionResponse);
+
+    // AllocateMessageSeq atomically allocates the next conversation message sequence.
+    // AllocateMessageSeq 原子分配下一个会话消息序列号。
+    rpc AllocateMessageSeq(AllocateMessageSeqRequest) returns (AllocateMessageSeqResponse);
+}
+
+message Conversation {
+    string conversation_id = 1;
+    string type = 2;
+    string status = 3;
+    string title = 4;
+    string owner_user_id = 5;
+    int64 current_seq = 6;
+    string created_at = 7;
+    string updated_at = 8;
+}
+
+message ConversationMember {
+    string conversation_id = 1;
+    string user_id = 2;
+    string role = 3;
+    string status = 4;
+    string muted_until = 5;
+    string joined_at = 6;
+    string updated_at = 7;
+}
+
+message ConversationSettings {
+    string conversation_id = 1;
+    string user_id = 2;
+    bool pinned = 3;
+    string muted_until = 4;
+    string remark = 5;
+    string updated_at = 6;
+}
+
+message MemberInput {
+    string user_id = 1;
+    string role = 2;
+}
+
+message CreateConversationRequest {
+    string creator_user_id = 1;
+    string type = 2;
+    string title = 3;
+    repeated MemberInput members = 4;
+}
+
+message CreateConversationResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    Conversation conversation = 4;
+    repeated ConversationMember members = 5;
+}
+
+message GetConversationRequest {
+    string conversation_id = 1;
+    string requester_user_id = 2;
+}
+
+message GetConversationResponse {
+    bool found = 1;
+    string error_code = 2;
+    string message = 3;
+    Conversation conversation = 4;
+    repeated ConversationMember members = 5;
+    ConversationSettings settings = 6;
+}
+
+message ListConversationsRequest {
+    string user_id = 1;
+    int32 limit = 2;
+    int32 offset = 3;
+}
+
+message ListConversationsResponse {
+    repeated Conversation conversations = 1;
+}
+
+message AddMembersRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+    repeated MemberInput members = 3;
+}
+
+message AddMembersResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    repeated ConversationMember members = 4;
+}
+
+message RemoveMembersRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+    repeated string user_ids = 3;
+}
+
+message RemoveMembersResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    int32 removed = 4;
+}
+
+message UpdateMemberRoleRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+    string target_user_id = 3;
+    string role = 4;
+}
+
+message UpdateMemberRoleResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    ConversationMember member = 4;
+}
+
+message UpdateConversationSettingsRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+    string target_user_id = 3;
+    bool pinned = 4;
+    string muted_until = 5;
+    string remark = 6;
+}
+
+message UpdateConversationSettingsResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    ConversationSettings settings = 4;
+}
+
+message CheckSendPermissionRequest {
+    string conversation_id = 1;
+    string user_id = 2;
+}
+
+message CheckSendPermissionResponse {
+    bool allowed = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message AllocateMessageSeqRequest {
+    string conversation_id = 1;
+    string user_id = 2;
+}
+
+message AllocateMessageSeqResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    int64 seq = 4;
+}

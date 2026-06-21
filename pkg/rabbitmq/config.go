@@ -124,3 +124,48 @@ func Publish(ctx context.Context, ch *amqp.Channel, exchange, routingKey string,
 	}
 	return nil
 }
+
+// DeclareTopicExchange declares a durable topic exchange.
+// DeclareTopicExchange 声明一个持久化 topic exchange。
+func DeclareTopicExchange(ch *amqp.Channel, exchange string) error {
+	if ch == nil {
+		return errors.New("rabbitmq channel is nil")
+	}
+	if exchange == "" {
+		return errors.New("rabbitmq exchange is required")
+	}
+	if err := ch.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
+		return fmt.Errorf("declare rabbitmq exchange: %w", err)
+	}
+	return nil
+}
+
+// PublishConfirmed sends one persistent JSON payload and waits for broker confirm.
+// PublishConfirmed 发送一条持久化 JSON 消息并等待 broker confirm。
+func PublishConfirmed(ctx context.Context, ch *amqp.Channel, exchange, routingKey string, body []byte) error {
+	if ch == nil {
+		return errors.New("rabbitmq channel is nil")
+	}
+	if exchange == "" {
+		return errors.New("rabbitmq exchange is required")
+	}
+	if routingKey == "" {
+		return errors.New("rabbitmq routing key is required")
+	}
+	confirms := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+	if err := ch.Confirm(false); err != nil {
+		return fmt.Errorf("enable rabbitmq publisher confirm: %w", err)
+	}
+	if err := Publish(ctx, ch, exchange, routingKey, body); err != nil {
+		return err
+	}
+	select {
+	case confirm := <-confirms:
+		if !confirm.Ack {
+			return errors.New("rabbitmq publish was nack")
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}

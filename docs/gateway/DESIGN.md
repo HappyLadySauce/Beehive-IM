@@ -2,7 +2,7 @@
 
 > 版本：v1.2
 > 适用范围：Edge 公网 WebSocket 代理入口、Gateway 内网上游会话节点、连接恢复、在线态与下行推送
-> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`api/edge.api`](../../api/edge.api)、[`proto/gateway.proto`](../../proto/gateway.proto)、[`proto/auth.proto`](../../proto/auth.proto)
+> 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`api/edge.api`](../../api/edge.api)、[`proto/gateway.proto`](../../proto/gateway.proto)、[`proto/message.proto`](../../proto/message.proto)、[`proto/conversation.proto`](../../proto/conversation.proto)、[`proto/auth.proto`](../../proto/auth.proto)
 
 ---
 
@@ -55,7 +55,7 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | 开发鉴权 | `POST /v1/ws/ticket` 暂用 `X-Debug-User-Id` 生成 ticket，后续替换为 Auth/JWT 校验 |
 | Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
 | Edge -> Gateway | 已采用 gRPC bidirectional stream 转发 JSON WebSocket 信封 |
-| Gateway 会话 | 当前为内存 session manager，支持 attach、resume、close、容量限制和 ping/pong/echo 验证帧 |
+| Gateway 会话 | 当前为内存 session manager，支持 attach、resume、close、容量限制和 ping/pong/session.resumed |
 | Gateway rebind | Edge 已支持短窗口多节点 rebind/resume：上游 stream 断开后隔离故障 Gateway、按配置重试多个 Gateway、调用 `Resume`、更新 Presence route 并向客户端发送 `session.resumed` |
 | Gateway draining | Gateway 收到 SIGINT/SIGTERM 后更新 etcd 状态为 `draining`；Edge Watch 到后停止新分配，并主动迁移本机已绑定连接 |
 | Presence | 已生成 `services/presence`，Edge 通过 zRPC 调用 Presence，在线态写入 Redis |
@@ -63,7 +63,9 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | Gateway 选择 | Gateway 注册到 etcd，Edge watch `/beehive-im/{env}/services/gateway/` 并回退静态 Gateway endpoint |
 | RabbitMQ push | Edge 已有 `edge.push.{edge_id}` consumer 骨架，可按 `conn_id` 或 `session_id` 写入本机 WebSocket |
 | User PostgreSQL | User 服务已接 PostgreSQL，`GetUser` 从 `users` / `user_profiles` 读取 |
-| Message/Conversation/Notification | 本轮未实现完整业务联调，业务帧暂由 Gateway echo 验证接入链路 |
+| Message/Conversation | Gateway 已接入 Message zRPC；`message.send` 持久化消息并返回 `message.persisted`，`message.ack` 写入回执并返回 `message.ack` |
+| 未知业务帧 | 未识别帧仍按 echo 验证链路处理 |
+| Notification | 本阶段未实现 Notification 消费 `message.created` 或发布在线 push 的完整业务闭环 |
 
 ### 1.5 关键约束
 
@@ -584,8 +586,80 @@ RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge �
 | `SERVER_DRAINING` | Edge 或 Gateway 优雅下线 |
 | `UPSTREAM_RECOVER_FAILED` | Edge 无法重新绑定 Gateway |
 | `INVALID_FRAME` | 帧格式错误 |
+| `MESSAGE_SERVICE_UNAVAILABLE` | Gateway 未配置或无法访问 Message 服务 |
+| `MESSAGE_SEND_FAILED` | 调用 Message `SendMessage` 失败 |
+| `MESSAGE_ACK_FAILED` | 调用 Message `AckMessages` 失败 |
 
-### 7.3 认证与消息分离
+### 7.3 业务帧
+
+当前 Gateway 已实现 `message.send` 和 `message.ack`，其余未知业务帧仍按 echo 返回，用于接入链路验证。
+
+**message.send**
+
+```json
+{
+  "type": "message.send",
+  "seq": 101,
+  "payload": {
+    "conversation_id": "conv_01",
+    "client_msg_id": "client_msg_01",
+    "content_type": "text",
+    "content": {
+      "text": "hello"
+    }
+  }
+}
+```
+
+Gateway 从本机 session 中读取 `user_id` 和 `device_id`，客户端不能通过 payload 覆盖发送者身份。
+
+**message.persisted**
+
+```json
+{
+  "type": "message.persisted",
+  "seq": 201,
+  "payload": {
+    "message_id": "msg_01",
+    "conversation_id": "conv_01",
+    "message_seq": 1024,
+    "sender_id": "user_01",
+    "content_type": "text",
+    "created_at": "2026-06-21T00:00:00Z",
+    "duplicate": false
+  }
+}
+```
+
+**message.ack**
+
+```json
+{
+  "type": "message.ack",
+  "seq": 202,
+  "payload": {
+    "conversation_id": "conv_01",
+    "ack_type": "read",
+    "seqs": [1024, 1025]
+  }
+}
+```
+
+成功响应：
+
+```json
+{
+  "type": "message.ack",
+  "seq": 203,
+  "payload": {
+    "conversation_id": "conv_01",
+    "ack_type": "read",
+    "updated": 2
+  }
+}
+```
+
+### 7.4 认证与消息分离
 
 - **认证**：Web 端通过一次性 `ws_ticket` 在 HTTP Upgrade 阶段完成
 - **业务消息**：握手成功后才开始收发；不在 WS 帧中传递 token
@@ -661,6 +735,7 @@ RabbitMQ push 只作为在线通知，消息事实源仍是 PostgreSQL；Edge �
 | `GATEWAY_UPSTREAM_LISTEN` | 内网上游监听地址 | `:9100` |
 | `config/gateway/max_sessions` | 最大上游会话数 | `20000` |
 | `config/gateway/session.idle_timeout` | 上游会话空闲超时 | `120s` |
+| `config/gateway/message.target` | Message zRPC 目标地址 | `127.0.0.1:9400` |
 | `secrets/global/jwt.secret` | Gateway 校验 auth context 使用 | — |
 
 本地基础设施见 [`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)（PostgreSQL、Redis、etcd、RabbitMQ）。

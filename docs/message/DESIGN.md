@@ -147,17 +147,20 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 | 在线态 | Edge 建连后调用 Presence，Presence 将 session route 写入 Redis |
 | Gateway 恢复 | Edge 已有基础 rebind/resume 骨架，Gateway stream 断开后可在同一 WebSocket 内切换上游；消息缺口仍依赖后续 Message 同步补偿 |
 | 在线 push | Edge 已有 RabbitMQ `edge.push.{edge_id}` consumer 骨架，可向本机 WebSocket 写通知帧 |
-| 消息同步 | 本轮未接入 Message，同步/补偿协议仍按本文后续章节实现 |
+| Conversation | 已新增 `proto/conversation.proto` 与 `services/conversation`，维护 `conversations`、`conversation_members`、`conversation_settings`，提供成员权限校验和 `AllocateMessageSeq` |
+| Message | 已新增 `proto/message.proto` 与 `services/message`，实现 `SendMessage`、`AckMessages`、消息持久化、发送幂等和 outbox 写入 |
+| Gateway 业务帧 | Gateway 已接入 `message.send` 和 `message.ack`，通过 Message zRPC 返回 `message.persisted` / `message.ack` |
+| Outbox | Message 内置 dispatcher，发布 `message.created.{conversation_id}` 到 RabbitMQ exchange `beehive.im.events`，使用 publisher confirm 和有界重试 |
+| 消息同步 | `SyncMessages` / `ListMessages` 补偿同步接口尚未实现，仍作为下一阶段 Web 可靠同步能力 |
 
 ### 3.2 内部 gRPC API
 
 | RPC | 调用方 | 说明 |
 |-----|--------|------|
-| `SendMessage` | Gateway / API Gateway | 发送消息并持久化 |
-| `SyncMessages` | API Gateway / Gateway | 按 cursor 批量同步缺失消息 |
-| `ListMessages` | API Gateway | 拉取单会话消息列表 |
-| `AckMessages` | Gateway / API Gateway | 写 delivered/read 回执 |
-| `GetConversationMaxSeq` | Gateway / API Gateway | 查询会话当前最大序号 |
+| `SendMessage` | Gateway | 已实现：发送消息并持久化，写入同事务 outbox |
+| `AckMessages` | Gateway | 已实现：写 delivered/read 回执 |
+| `SyncMessages` | API Gateway / Gateway | 计划中：按 cursor 批量同步缺失消息 |
+| `ListMessages` | API Gateway | 计划中：拉取单会话消息列表 |
 
 ### 3.3 SendMessage 请求
 
@@ -181,8 +184,8 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 | `conversation_id` | 必填，服务端校验用户是否是成员 |
 | `client_msg_id` | 必填，Web 端生成 ULID/UUID，单设备内唯一 |
 | `device_id` | 来自服务端登记或 Web 本地持久化，禁止由请求任意覆盖用户身份 |
-| `content_type` | v1 支持 `text`、`system`；附件后续扩展 |
-| `content` | JSONB，服务端按类型校验大小和字段 |
+| `content_type` | 当前仅支持 `text`；附件、system 消息后续扩展 |
+| `content` | JSONB，当前必须是 `{ "text": "..." }`，服务端限制文本和 JSON 大小 |
 
 成功响应：
 
@@ -216,16 +219,16 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 
 | 字段 | 说明 |
 |------|------|
-| `id` | 消息 ID，UUID/雪花 ID |
+| `message_id` | 消息 ID，UUID |
 | `conversation_id` | 会话 ID |
 | `seq` | 会话内单调递增序号 |
 | `sender_id` | 发送者用户 ID |
 | `device_id` | 发送设备 ID |
 | `client_msg_id` | Web 客户端生成的幂等 ID |
 | `content_type` | 消息类型 |
-| `content` | JSONB 内容 |
-| `status` | `normal`、`recalled`、`deleted` |
-| `created_at` / `updated_at` | 生命周期时间 |
+| `content_json` | JSONB 内容 |
+| `client_seq` | WebSocket 客户端帧序号，辅助排查与恢复 |
+| `created_at` / `deleted_at` | 生命周期时间 |
 
 唯一约束：
 
@@ -238,9 +241,9 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 
 | 字段 | 说明 |
 |------|------|
-| `message_id` | 消息 ID |
 | `conversation_id` | 会话 ID |
 | `user_id` | 回执用户 |
+| `message_seq` | 会话内消息序列号 |
 | `delivered_at` | Web 客户端持久化到本地后的时间 |
 | `read_at` | 用户实际读到该消息的时间 |
 
@@ -248,7 +251,7 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 
 ### 4.2 序号分配
 
-v1 使用 Conversation `AllocateMessageSeq` 分配会话内序号，Message 在同一写入流程中持久化消息。Message 仍必须依赖 `UNIQUE(conversation_id, seq)` 兜底，处理重试或并发下的重复序号。
+v1 使用 Conversation `AllocateMessageSeq` 分配会话内序号，Message 随后在本服务事务中写入 `messages + outbox_events`。由于 seq 分配和 Message 写库跨服务，Message 写入失败时可能产生会话内 seq gap；客户端不能把 gap 直接视为消息丢失，必须通过后续 `SyncMessages` 补偿接口确认缺失范围。Message 仍必须依赖 `UNIQUE(conversation_id, seq)` 兜底，处理重试或并发下的重复序号。
 
 如果后续把序号分配移动到 Message 内部，必须保证会话行锁、唯一索引和事务边界仍然清晰，不能让 Gateway 或客户端参与序号分配。
 
@@ -373,18 +376,13 @@ Web 客户端在消息写入 IndexedDB 后发送 delivered ack；用户实际打
   "seq": 203,
   "payload": {
     "conversation_id": "conv_01",
-    "acks": [
-      {
-        "message_id": "msg_02",
-        "seq": 1025,
-        "ack_type": "delivered"
-      }
-    ]
+    "ack_type": "delivered",
+    "seqs": [1025]
   }
 }
 ```
 
-read ack 可以按会话批量上报到最大已读序号：
+当前实现支持按明确 `seqs` 批量上报 read ack：
 
 ```json
 {
@@ -392,8 +390,8 @@ read ack 可以按会话批量上报到最大已读序号：
   "seq": 204,
   "payload": {
     "conversation_id": "conv_01",
-    "read_up_to_seq": 1025,
-    "ack_type": "read"
+    "ack_type": "read",
+    "seqs": [1024, 1025]
   }
 }
 ```
@@ -506,10 +504,14 @@ Web 客户端断网或无 leader 时：
 
 | code | 场景 | Web 行为 |
 |------|------|----------|
-| `INVALID_MESSAGE_CONTENT` | 内容为空、过长或类型不支持 | 标记失败，提示用户修改 |
+| `INVALID_ARGUMENT` | 内容为空、过长、类型不支持或必要字段缺失 | 标记失败，提示用户修改 |
 | `CONVERSATION_NOT_FOUND` | 会话不存在或不可见 | 停止重试，刷新会话列表 |
-| `SEND_PERMISSION_DENIED` | 非成员、禁言、会话关闭 | 停止重试，刷新权限状态 |
-| `DUPLICATE_CLIENT_MESSAGE` | 幂等命中 | 使用返回的已持久化消息更新本地状态 |
+| `PERMISSION_DENIED` | 非成员或成员状态不可用 | 停止重试，刷新权限状态 |
+| `CONVERSATION_CLOSED` | 会话关闭 | 停止重试，刷新会话状态 |
+| `MEMBER_MUTED` | 成员被禁言 | 停止重试，提示禁言状态 |
+| `duplicate=true` | 幂等命中，不作为错误码返回 | 使用返回的已持久化消息更新本地状态 |
+| `MESSAGE_SERVICE_UNAVAILABLE` | Gateway 未配置或无法访问 Message | 保持本地 pending，稍后重试 |
+| `MESSAGE_SEND_FAILED` / `MESSAGE_ACK_FAILED` | Message RPC 故障 | 保持本地 pending 或稍后重试 ack |
 | `MESSAGE_GAP_DETECTED` | 服务端检测 cursor 缺口 | 触发 `SyncMessages` |
 | `WS_TICKET_EXPIRED` | ticket 过期或已使用 | 重新申请 ticket |
 | `TOKEN_EXPIRED` | access token 过期 | 刷新 token 后重新申请 ticket |
@@ -569,11 +571,11 @@ Web 客户端建议上报：
 
 ## 12. 验收清单
 
-- [ ] Message 写入 `messages + outbox_events` 同事务。
-- [ ] `UNIQUE(conversation_id, seq)` 和 `UNIQUE(sender_id, device_id, client_msg_id)` 已落库。
-- [ ] 发送接口重复 `client_msg_id` 返回同一条已持久化消息。
+- [x] Message 写入 `messages + outbox_events` 同事务。
+- [x] `UNIQUE(conversation_id, seq)` 和 `UNIQUE(sender_id, device_id, client_msg_id)` 已落库。
+- [x] 发送接口重复 `client_msg_id` 返回同一条已持久化消息。
 - [ ] WebSocket push 丢失时，Web 客户端能通过 `SyncMessages` 补齐。
 - [ ] Web 多标签页只保留一个 WebSocket leader。
 - [ ] WebSocket 鉴权使用一次性 `ws_ticket`，JWT/access token 不进入 WS query。
-- [ ] delivered/read ack 支持批量、幂等和权限校验。
+- [x] delivered/read ack 支持按 seqs 批量、幂等和权限校验。
 - [ ] 指标覆盖发送延迟、同步缺口、outbox pending、重连次数和本地 pending 数。

@@ -4,6 +4,7 @@ go 1.26.2
 
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/rabbitmq/amqp091-go v1.12.0
@@ -34,7 +35,6 @@ require (
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grafana/pyroscope-go v1.3.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.10 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.7 // indirect

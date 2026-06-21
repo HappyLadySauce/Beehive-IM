@@ -10,4 +10,5 @@ type Config struct {
 	UpstreamAddr        string `json:",default=127.0.0.1:9100"`
 	MaxSessions         int    `json:",default=20000"`
 	DrainTimeoutSeconds int64  `json:",default=15"`
+	Message             zrpc.RpcClientConf
 }

@@ -73,6 +73,54 @@ func TestAuthSchemaMigrationReusesUserUpdatedAtTrigger(t *testing.T) {
 	}
 }
 
+// TestConversationSchemaMigrationDefinesConversationTables checks conversation persistence SQL.
+// TestConversationSchemaMigrationDefinesConversationTables 校验 conversation 持久化 SQL。
+func TestConversationSchemaMigrationDefinesConversationTables(t *testing.T) {
+	t.Helper()
+
+	root := repoRootFromWorkingDir(t)
+	conversationSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "conversations", "003_conversation.sql"))
+
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS conversations",
+		"current_seq     BIGINT NOT NULL DEFAULT 0",
+		"CONSTRAINT chk_conversations_status CHECK",
+		"CREATE TABLE IF NOT EXISTS conversation_members",
+		"PRIMARY KEY (conversation_id, user_id)",
+		"CONSTRAINT chk_conversation_members_role CHECK",
+		"CREATE TABLE IF NOT EXISTS conversation_settings",
+		"trigger_conversations_updated_at",
+	} {
+		if !strings.Contains(conversationSQL, want) {
+			t.Fatalf("conversation migration missing %q", want)
+		}
+	}
+}
+
+// TestMessageSchemaMigrationDefinesMessageReceiptAndOutboxTables checks message persistence SQL.
+// TestMessageSchemaMigrationDefinesMessageReceiptAndOutboxTables 校验 message、receipt 和 outbox 持久化 SQL。
+func TestMessageSchemaMigrationDefinesMessageReceiptAndOutboxTables(t *testing.T) {
+	t.Helper()
+
+	root := repoRootFromWorkingDir(t)
+	messageSQL := readRepoFile(t, root, filepath.Join("sql", "migrations", "messages", "004_message.sql"))
+
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS messages",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uk_messages_conversation_seq",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uk_messages_sender_device_client_msg",
+		"CREATE TABLE IF NOT EXISTS message_receipts",
+		"FOREIGN KEY (conversation_id, message_seq)",
+		"CREATE TABLE IF NOT EXISTS outbox_events",
+		"CONSTRAINT chk_outbox_events_status CHECK",
+		"CREATE INDEX IF NOT EXISTS idx_outbox_events_pending",
+	} {
+		if !strings.Contains(messageSQL, want) {
+			t.Fatalf("message migration missing %q", want)
+		}
+	}
+}
+
 // TestMigrationLayoutHasExpectedDomainFiles ensures the repo ships the current users/auth bootstrap pair.
 // TestMigrationLayoutHasExpectedDomainFiles 确认仓库包含当前的 users/auth 引导迁移文件。
 func TestMigrationLayoutHasExpectedDomainFiles(t *testing.T) {
@@ -82,6 +130,8 @@ func TestMigrationLayoutHasExpectedDomainFiles(t *testing.T) {
 	for _, rel := range []string{
 		filepath.Join("sql", "migrations", "users", "001_user.sql"),
 		filepath.Join("sql", "migrations", "auth", "002_auth.sql"),
+		filepath.Join("sql", "migrations", "conversations", "003_conversation.sql"),
+		filepath.Join("sql", "migrations", "messages", "004_message.sql"),
 	} {
 		path := filepath.Join(root, rel)
 		if _, err := os.Stat(path); err != nil {

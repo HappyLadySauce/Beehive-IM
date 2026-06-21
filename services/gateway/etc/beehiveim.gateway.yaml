@@ -6,6 +6,11 @@ RegistryPrefix: /beehive-im
 UpstreamAddr: 127.0.0.1:9100
 MaxSessions: 20000
 DrainTimeoutSeconds: 15
+Message:
+  Endpoints:
+  - 127.0.0.1:9400
+  NonBlock: true
+  Timeout: 2000
 Etcd:
   Hosts:
   - 127.0.0.1:2379

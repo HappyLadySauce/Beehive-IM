@@ -8,12 +8,15 @@ import (
 	pkgetcd "github.com/HappyLadySauce/Beehive-IM/pkg/etcd"
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/internal/config"
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/internal/session"
+	"github.com/HappyLadySauce/Beehive-IM/services/message/messageservice"
 	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/zrpc"
 )
 
 type ServiceContext struct {
 	Config       config.Config
 	Sessions     *session.Manager
+	Message      messageservice.MessageService
 	registration *pkgetcd.Registration
 	etcdClient   interface{ Close() error }
 	stopRegistry chan struct{}
@@ -27,6 +30,9 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Sessions:     session.NewManager(c.GatewayID, c.MaxSessions),
 		stopRegistry: make(chan struct{}),
 		status:       "online",
+	}
+	if hasRPCTarget(c.Message) {
+		ctx.Message = messageservice.NewMessageService(zrpc.MustNewClient(c.Message))
 	}
 	ctx.startRegistry()
 	return ctx
@@ -136,4 +142,11 @@ func (s *ServiceContext) registryNode() pkgetcd.ServiceNode {
 		MaxSessions:   s.Config.MaxSessions,
 		UpdatedAt:     time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func hasRPCTarget(c zrpc.RpcClientConf) bool {
+	if len(c.Endpoints) > 0 {
+		return true
+	}
+	return len(c.Etcd.Hosts) > 0 && c.Etcd.Key != ""
 }

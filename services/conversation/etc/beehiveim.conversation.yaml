@@ -1,0 +1,11 @@
+Name: beehiveim.conversation.rpc
+ListenOn: 0.0.0.0:9300
+Env: dev
+Postgres:
+  DSN: ""
+  MaxConns: 20
+  MinConns: 2
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: beehiveim.conversation.rpc

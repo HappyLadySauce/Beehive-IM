@@ -1,0 +1,29 @@
+Name: beehiveim.message.rpc
+ListenOn: 0.0.0.0:9400
+Env: dev
+Postgres:
+  DSN: ""
+  MaxConns: 20
+  MinConns: 2
+RabbitMQ:
+  URL: ""
+  Exchange: beehive.im.events
+  PublishTimeoutSeconds: 5
+Conversation:
+  Endpoints:
+  - 127.0.0.1:9300
+  NonBlock: true
+  Timeout: 2000
+Outbox:
+  Enabled: true
+  BatchSize: 32
+  PollIntervalMs: 500
+  LockTTLSeconds: 30
+  MaxAttempts: 20
+  RetryBaseDelayMs: 500
+  RetryMaxDelayMs: 30000
+  PublishTimeoutMs: 5000
+Etcd:
+  Hosts:
+  - 127.0.0.1:2379
+  Key: beehiveim.message.rpc

@@ -168,6 +168,20 @@ func (m *Manager) Exists(sessionID string) bool {
 	return ok
 }
 
+func (m *Manager) Get(sessionID, connID string) (*Session, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	sess, ok := m.sessions[sessionID]
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	if connID == "" || sess.ConnID != connID {
+		return nil, ErrSessionOwnerMismatch
+	}
+	return cloneSession(sess), nil
+}
+
 func (m *Manager) Count() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

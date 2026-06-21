@@ -305,8 +305,8 @@ PostgreSQL 是唯一业务事实源。
 |----|-----------|
 | 用户 | `users`、`user_profiles`，见 [`sql/migrations/users/001_user.sql`](../../sql/migrations/users/001_user.sql) |
 | 认证 | `user_oauth_identities`、`refresh_tokens`，见 [`sql/migrations/auth/002_auth.sql`](../../sql/migrations/auth/002_auth.sql) |
-| 会话 | `conversations`、`conversation_members`、`conversation_settings` 等 |
-| 消息 | `messages`、`message_receipts` 等 |
+| 会话 | `conversations`、`conversation_members`、`conversation_settings`，见 [`sql/migrations/conversations/003_conversation.sql`](../../sql/migrations/conversations/003_conversation.sql) |
+| 消息 | `messages`、`message_receipts`，见 [`sql/migrations/messages/004_message.sql`](../../sql/migrations/messages/004_message.sql) |
 | 通知 | `notification_devices`、`notification_preferences`、`notification_deliveries` 等 |
 | 可靠发布 | `outbox_events`，保存待发布领域事件和通知请求 |
 
@@ -335,15 +335,16 @@ flowchart LR
 
 | 字段 | 说明 |
 |------|------|
-| `id` | 事件 ID，UUID 或雪花 ID |
+| `event_id` | 事件 ID，UUID |
 | `aggregate_type` | `message`、`conversation` 等 |
 | `aggregate_id` | 聚合 ID，例如 `message_id` |
 | `event_type` | `message.created`、`push.requested` |
 | `routing_key` | RabbitMQ routing key |
-| `payload` | JSONB payload |
-| `status` | `pending`、`publishing`、`published`、`failed` |
+| `payload_json` | JSONB payload |
+| `status` | `pending`、`published`、`failed` |
 | `attempts` | 发布次数 |
-| `next_retry_at` | 下次重试时间 |
+| `next_attempt_at` | 下次重试时间 |
+| `locked_until` | dispatcher 短租约 |
 | `created_at` / `published_at` | 生命周期时间 |
 
 Dispatcher 要求：
@@ -791,6 +792,8 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 docker compose -f docker\Infrastructure\docker-compose.yaml up -d
 .\sql\migrate.ps1
 go run .\services\presence -f .\services\presence\etc\beehiveim.presence.yaml
+go run .\services\conversation -f .\services\conversation\etc\beehiveim.conversation.yaml
+go run .\services\message -f .\services\message\etc\beehiveim.message.yaml
 go run .\services\gateway -f .\services\gateway\etc\beehiveim.gateway.yaml
 go run .\services\user -f .\services\user\etc\beehiveim.user.yaml
 $env:RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/'
@@ -801,10 +804,10 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 | 中间件 | 当前接入点 |
 |--------|------------|
-| PostgreSQL | `pkg/postgres` 连接池；User `GetUser` 读取真实用户表 |
+| PostgreSQL | `pkg/postgres` 连接池；User 读取用户表，Conversation 读写会话表，Message 写消息、回执和 outbox |
 | Redis | `pkg/redis` 客户端；Presence 独占在线态 key 写入 |
 | etcd | `pkg/etcd` 服务注册/发现；Gateway 注册，Edge watch Gateway |
-| RabbitMQ | `pkg/rabbitmq` 拓扑/publish 基础封装；Edge 消费 `edge.push.{edge_id}` |
+| RabbitMQ | `pkg/rabbitmq` 拓扑/publish 基础封装；Message outbox 发布 `beehive.im.events`，Edge 消费 `edge.push.{edge_id}` |
 
 为避免与 go-zero 内置 `Etcd` / `Redis` 配置字段冲突，业务中间件配置使用 `Registry`、`RedisStore` 等显式名称。
 
@@ -974,19 +977,19 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 进入实现或上线前必须满足：
 
 - [ ] PostgreSQL 迁移可重复执行，staging 已验证。
-- [ ] Message 写入使用 `messages + outbox_events` 同事务。
-- [ ] Message 发送接口支持 `client_msg_id` 幂等，客户端可按 `conversation_id + seq` 补偿同步。
-- [ ] Outbox dispatcher 使用 publisher confirm，并有重试、DLQ、指标。
-- [ ] Presence 提供 `UpsertConnection`、`RefreshConnection`、`RebindGateway`、`RemoveConnection`、`GetLiveRoutes` API。
+- [x] Message 写入使用 `messages + outbox_events` 同事务。
+- [x] Message 发送接口支持 `client_msg_id` 幂等；客户端按 `conversation_id + seq` 补偿同步仍待实现。
+- [x] Outbox dispatcher 使用 publisher confirm，并有有界重试；DLQ 和指标仍待实现。
+- [x] Presence 提供 `UpsertConnection`、`RefreshConnection`、`RebindGateway`、`RemoveConnection`、`GetLiveRoutes` API。
 - [ ] Presence 在线态写入、Gateway rebind、断开、续期使用 Lua 或事务，断开为 compare-and-delete。
 - [ ] Notification 消费 `message.created.#` 后完成幂等、偏好判断、Presence 路由查询和在线/离线分流。
 - [ ] Notification 在线 push、去重、限流、重试和 DLQ 均有指标与测试；可选离线 provider 启用时补齐 provider 指标与测试。
-- [ ] Gateway 服务注册只写 etcd，不写 Redis 服务发现 key。
-- [ ] Edge Watch 使用全量加载 + revision 增量恢复。
+- [x] Gateway 服务注册只写 etcd，不写 Redis 服务发现 key。
+- [x] Edge Watch 使用全量加载 + Watch 更新 Gateway 视图。
 - [ ] `jwt.secret` v1 明确为滚动重启生效，不做热更新。
 - [ ] WebSocket 鉴权使用一次性 `ws_ticket`，生产禁止 query access token。
 - [ ] RabbitMQ Edge push 明确为在线通知，客户端具备消息补偿同步。
-- [ ] Edge -> Gateway 上游连接具备 deadline、背压、rebind/resume 和失败兜底重连。
+- [x] Edge -> Gateway 上游连接具备 deadline、背压、rebind/resume 和失败兜底重连。
 - [ ] 生产环境 TLS、RBAC、最小权限、secret 脱敏已配置。
 - [ ] 指标、日志、告警覆盖 PostgreSQL、Redis、etcd、RabbitMQ、Gateway、Edge、Presence、Notification。
 
@@ -996,7 +999,7 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 | 阶段 | 内容 |
 |------|------|
-| v1 | 四类中间件本地 compose；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Notification 在线 push；outbox 基线 |
-| v1.1 | JWT 黑名单；Gateway rebind/resume；Presence 清理任务；基础观测面板 |
+| v1 | 四类中间件本地 compose；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Conversation 基础 API；Message 持久化与 outbox 基线 |
+| v1.1 | JWT 黑名单；Presence 清理任务；Notification 消费 `message.created` 并发布 Edge push；基础观测面板 |
 | v2 | etcd 3 节点 + TLS + RBAC；RabbitMQ Quorum Queue；gRPC etcd resolver；Message 同步接口完善；Web Push / 移动 provider 扩展 |
 | v3 | RS256 + JWKS；配置灰度；跨 region 路由；RabbitMQ federation 或替代事件总线评估 |

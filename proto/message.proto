@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package beehive_im.message;
+
+option go_package = "./pb";
+
+service MessageService {
+    // SendMessage validates permissions and persists one client message.
+    // SendMessage 校验权限并持久化一条客户端消息。
+    rpc SendMessage(SendMessageRequest) returns (SendMessageResponse);
+
+    // AckMessages records delivered/read receipts for message sequences.
+    // AckMessages 记录消息序列的 delivered/read 回执。
+    rpc AckMessages(AckMessagesRequest) returns (AckMessagesResponse);
+}
+
+message SendMessageRequest {
+    string conversation_id = 1;
+    string sender_id = 2;
+    string device_id = 3;
+    string client_msg_id = 4;
+    string content_type = 5;
+    string content_json = 6;
+    int64 client_seq = 7;
+}
+
+message SendMessageResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    string message_id = 4;
+    string conversation_id = 5;
+    int64 seq = 6;
+    string sender_id = 7;
+    string content_type = 8;
+    string created_at = 9;
+    bool duplicate = 10;
+}
+
+message AckMessagesRequest {
+    string conversation_id = 1;
+    string user_id = 2;
+    string device_id = 3;
+    string ack_type = 4;
+    repeated int64 seqs = 5;
+}
+
+message AckMessagesResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    int32 updated = 4;
+}
