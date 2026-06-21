@@ -11,4 +11,5 @@ logs/
 data/
 configs/
 
+bin/
 *.exe
