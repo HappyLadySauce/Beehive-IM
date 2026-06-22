@@ -95,7 +95,7 @@ func DeclarePushTopology(ch *amqp.Channel, exchange, queue, routingKey string) e
 	if err := ch.ExchangeDeclare(exchange, "topic", true, false, false, false, nil); err != nil {
 		return fmt.Errorf("declare rabbitmq exchange: %w", err)
 	}
-	if _, err := ch.QueueDeclare(queue, true, false, false, false, nil); err != nil {
+	if _, err := ch.QueueDeclare(queue, false, false, true, false, nil); err != nil {
 		return fmt.Errorf("declare rabbitmq queue: %w", err)
 	}
 	if err := ch.QueueBind(queue, routingKey, exchange, false, nil); err != nil {

@@ -50,7 +50,7 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 
 | 能力 | 当前状态 |
 |------|----------|
-| Edge HTTP API | 已通过 `api/edge.api` 生成 `services/edge`，提供 `GET /healthz`、`POST /v1/ws/ticket`、`GET /ws` |
+| Edge HTTP API | 已通过 `api/edge.api` 生成 `services/edge`，提供 `GET /healthz`、`POST /v1/ws/ticket`、`GET /ws`、`GET /v1/conversations/:conversation_id/messages`、`POST /v1/messages/sync`、`POST /v1/messages/ack` |
 | WebSocket ticket | Edge 本地内存存储，TTL 默认 30s，单次消费，绑定 `user_id`、`device_id`、`session_id`、Origin |
 | 开发鉴权 | `POST /v1/ws/ticket` 暂用 `X-Debug-User-Id` 生成 ticket，后续替换为 Auth/JWT 校验 |
 | Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
@@ -61,11 +61,11 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | Presence | 已生成 `services/presence`，Edge 通过 zRPC 调用 Presence，在线态写入 Redis |
 | Presence refresh | Edge 收到客户端业务帧后调用 Presence `RefreshConnection`，刷新 `conn:meta` 与 `session:route` TTL |
 | Gateway 选择 | Gateway 注册到 etcd，Edge watch `/beehive-im/{env}/services/gateway/` 并回退静态 Gateway endpoint |
-| RabbitMQ push | Edge 已有 `edge.push.{edge_id}` consumer 骨架，可按 `conn_id` 或 `session_id` 写入本机 WebSocket |
+| RabbitMQ push | Edge 已消费 RabbitMQ `edge.push.{edge_id}` 队列，绑定 routing key `push.edge.{edge_id}`，按 `conn_id` 或 `session_id` 写入本机 WebSocket |
 | User PostgreSQL | User 服务已接 PostgreSQL，`GetUser` 从 `users` / `user_profiles` 读取 |
 | Message/Conversation | Gateway 已接入 Message zRPC；`message.send` 持久化消息并返回 `message.persisted`，`message.ack` 写入回执并返回 `message.ack` |
 | 未知业务帧 | 未识别帧仍按 echo 验证链路处理 |
-| Notification | 本阶段未实现 Notification 消费 `message.created` 或发布在线 push 的完整业务闭环 |
+| Notification | 已新增 `services/notification`，消费 `message.created.#`，查询 Conversation + Presence，并发布 `message.new` 在线 push |
 
 ### 1.5 关键约束
 
@@ -513,7 +513,7 @@ Notification 服务向在线用户推送时：
 1. 从 RabbitMQ 消费 `message.created.#` 或 `conversation.updated.#` 领域事件。
 2. 调用 Conversation 或使用事件快照解析收件人和通知偏好。
 3. 调用 Presence `GetLiveRoutes(user_id)` 获取在线设备路由。
-4. 按 `edge_id` 分组 payload。
+4. 当前按在线 route 逐条发布到目标 `edge_id`；后续可按 `edge_id` 聚合减少 publish 次数。
 5. 向 RabbitMQ exchange `beehive.im.push` 发布在线推送通知，routing key `push.edge.{edge_id}`。
 6. 目标 Edge 从队列 `edge.push.{edge_id}` 消费，经本地 `conn_id` 写入 WebSocket。
 
@@ -890,9 +890,9 @@ flowchart LR
 
 | 阶段 | 内容 |
 |------|------|
-| v1（当前） | Edge 代理 WebSocket；Gateway 内网上游；Presence 在线态；Notification 发布 RabbitMQ `push.edge` |
-| v1.1 | JWT 黑名单；Gateway rebind/resume；Presence 在线态清理任务；基础观测面板 |
-| v2 | Gateway 选择引入 rendezvous hash + 权重；Message 同步接口完善；Web Push / 移动 provider 扩展；mTLS 自动证书轮换 |
+| v1（当前） | Edge 代理 WebSocket；Gateway 内网上游；Presence 在线态；Message 持久化/同步；Notification 在线 push |
+| v1.1 | JWT 黑名单；Presence 在线态清理任务；Notification DLQ/指标；基础观测面板 |
+| v2 | Gateway 选择引入 rendezvous hash + 权重；Web Push / 移动 provider 扩展；mTLS 自动证书轮换 |
 | v3 | RS256 + JWKS；跨 region Edge；Gateway 多活；事件总线升级评估 |
 
 ---

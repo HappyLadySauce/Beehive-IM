@@ -8,19 +8,18 @@
 
 ## 1. 目标与范围
 
-Notification 服务负责把业务事件转换成用户可接收的通知。Message 服务只负责消息事实和 outbox 可靠发布；Notification 消费领域事件后，统一完成收件人解析、通知偏好判断、在线路由查询、在线 Edge push、投递记录、幂等和限流。v1 客户端只考虑 Web 端，离线移动端 provider 作为后续扩展；当前优先保证在线 Edge push 和 Web 客户端补偿同步。
+Notification 服务负责把业务事件转换成用户可接收的通知。Message 服务只负责消息事实和 outbox 可靠发布；Notification 消费领域事件后，统一完成收件人解析、在线路由查询、在线 Edge push、投递记录和事件级幂等。v1 客户端只考虑 Web 端，离线移动端 provider、复杂通知偏好和限流作为后续扩展；当前优先保证在线 Edge push 和 Web 客户端补偿同步。
 
 ### 1.1 职责
 
 | 职责 | 说明 |
 |------|------|
-| 事件消费 | 消费 `message.created.#`、`conversation.updated.#` 等领域事件 |
-| 收件人解析 | 调用 Conversation 或使用事件快照解析会话成员、免打扰和屏蔽关系 |
-| 在线通知 | 调用 Presence `GetLiveRoutes`，按 `edge_id` 聚合并发布 `push.edge.{edge_id}` |
+| 事件消费 | 当前消费 `message.created.#`；`conversation.updated.#` 后续接入 |
+| 收件人解析 | 调用 Conversation 解析 active conversation members |
+| 在线通知 | 调用 Presence `GetLiveRoutes`，向目标 `push.edge.{edge_id}` 发布在线 push |
 | 离线通知 | v1 预留 Web Push / 移动 provider 扩展；当前不作为 Web 消息可靠性的依赖 |
-| 幂等去重 | 防止 RabbitMQ 重投、服务重启和 provider 重试导致重复通知 |
-| 限流降级 | 按用户、会话、provider 和全局维度限流 |
-| 投递记录 | 记录必要的 notification delivery 状态，便于审计和补偿 |
+| 幂等去重 | 使用 Redis `notify:dedupe:{event_id}` 防止 RabbitMQ 重投导致重复通知 |
+| 投递记录 | 记录 online delivery 状态，便于审计和验证 |
 
 ### 1.2 非职责
 
@@ -43,7 +42,6 @@ flowchart LR
     PG[(PostgreSQL)]
     RMQ[(RabbitMQ)]
     Edge[Edge Service]
-    Provider[Optional Web Push / Offline Providers]
 
     Message -->|outbox publish message.created| RMQ
     RMQ -->|durable queue| Notification
@@ -53,13 +51,12 @@ flowchart LR
     Notification --> PG
     Notification -->|push.edge.{edge_id}| RMQ
     RMQ --> Edge
-    Notification --> Provider
 ```
 
 核心边界：
 
 - Message 发布领域事件，不直接查在线态，也不直接发布 Edge push。
-- Notification 是在线/离线通知编排点。
+- Notification 是在线通知编排点；离线 provider 后续扩展。
 - Presence 是在线路由事实服务。
 - Edge 只消费自身 `edge.push.{edge_id}` 队列并写本地 WebSocket。
 
@@ -72,7 +69,7 @@ flowchart LR
 | Exchange | Routing key | Queue | 说明 |
 |----------|-------------|-------|------|
 | `beehive.im.events` | `message.created.#` | `notification.message.events` | 新消息通知 |
-| `beehive.im.events` | `conversation.updated.#` | `notification.message.events` | 会话名、成员、免打扰等变更 |
+| `beehive.im.events` | `conversation.updated.#` | `notification.message.events` | 后续：会话名、成员、免打扰等变更 |
 
 输入事件必须包含：
 
@@ -83,9 +80,10 @@ flowchart LR
 | `conversation_id` | 会话 ID |
 | `message_id` | 消息 ID，非消息事件可为空 |
 | `sender_id` | 发送者 |
+| `device_id` | 发送设备，用于过滤发送者同设备回推 |
 | `seq` | 会话内消息序号 |
-| `occurred_at` | 事件发生时间 |
-| `payload` | 精简业务载荷，不包含敏感明文 |
+| `created_at` | 消息创建时间 |
+| `content_type` / `content` | v1 Web 在线 push 使用的消息内容；后续敏感内容场景应改为最小通知载荷 |
 
 ### 3.2 输出 Edge push
 
@@ -93,41 +91,41 @@ flowchart LR
 |----------|-------------|-------|------|
 | `beehive.im.push` | `push.edge.{edge_id}` | `edge.push.{edge_id}` | 推送到指定 Edge 实例 |
 
-Edge push payload 建议：
+当前 Edge push payload：
 
 ```json
 {
-  "notification_id": "ntf_01",
-  "event_id": "evt_01",
-  "conversation_id": "conv_01",
-  "message_id": "msg_01",
-  "seq": 1024,
-  "routes": [
-    {
-      "user_id": 1001,
-      "device_id": "ios-01",
-      "conn_id": "conn-01",
-      "session_id": "sess-01"
-    }
-  ],
+  "conn_id": "conn-01",
+  "session_id": "sess-01",
+  "type": "message.new",
   "payload": {
-    "type": "message",
-    "preview": "redacted or short preview"
+    "event_id": "evt_01",
+    "message_id": "msg_01",
+    "conversation_id": "conv_01",
+    "seq": 1024,
+    "sender_id": "user-1",
+    "device_id": "web-1",
+    "client_msg_id": "client-1",
+    "content_type": "text",
+    "content": {
+      "text": "hello"
+    },
+    "created_at": "2026-06-21T00:00:00Z"
   }
 }
 ```
 
-Edge 必须在写入本地 WebSocket buffer 成功后 ack RabbitMQ 消息。Edge push 只是在线通知，客户端仍需要按 `conversation_id + seq` 从 Message 同步缺失消息。
+Edge 写入本地 WebSocket buffer 成功或目标连接不存在后都会 ack RabbitMQ 消息。Edge push 只是在线通知，客户端仍需要按 `conversation_id + seq` 从 Message 同步缺失消息。
 
 ### 3.3 Retry 与 DLQ
 
 | 阶段 | 策略 |
 |------|------|
-| 事件消费失败 | `nack` 后进入有界重试或 retry exchange |
-| Presence 查询超时 | 短退避重试；超过阈值转 DLQ，Web 客户端依赖 Message 同步补偿 |
-| Edge push 发布失败 | publisher confirm 失败后重试，不影响消息事实 |
-| Provider 调用失败 | 按 provider 错误类型决定重试、熔断或丢弃 |
-| DLQ | 任意新增必须告警，保留重放工具 |
+| 事件消费失败 | 当前 `nack(requeue=true)`；后续接 retry exchange 和 DLQ |
+| Presence 查询超时 | 当前随输入事件重投；Web 客户端依赖 Message 同步补偿 |
+| Edge push 发布失败 | publisher confirm 失败后随输入事件重投，不影响消息事实 |
+| Provider 调用失败 | 后续按 provider 错误类型决定重试、熔断或丢弃 |
+| DLQ | 后续补齐；任意新增必须告警，保留重放工具 |
 
 ---
 
@@ -142,27 +140,24 @@ sequenceDiagram
     participant R as Redis
     participant DB as PostgreSQL
     participant E as Edge
-    participant OP as OptionalProvider
 
     RMQ->>N: message.created event
     N->>R: SETNX notify:dedupe:{event_id}
-    N->>CV: Resolve recipients and preferences
-    N->>P: GetLiveRoutes(recipients)
-    N->>N: split online and offline targets
+    N->>CV: ResolveMessageRecipients(conversation_id)
+    N->>P: GetLiveRoutes(user_id)
     N->>RMQ: publish push.edge.{edge_id}
     RMQ->>E: edge push
     N->>DB: insert/update delivery records
-    N->>OP: optional offline/web push
     N->>RMQ: ack input event
 ```
 
 处理顺序要求：
 
 1. 先做事件级幂等，重复事件直接 ack。
-2. 再解析收件人和通知偏好，发送者默认不通知自己，除非业务明确需要多端同步提示。
-3. 查询 Presence，将在线设备放入 Edge push。
+2. 调用 Conversation 解析 active members，包含 sender。
+3. 查询 Presence，将在线设备发布到对应 Edge；过滤 sender 的同一 `device_id`，保留 sender 其他设备的多端同步能力。
 4. v1 Web 端不依赖离线 provider 保证可靠性；后续启用 Web Push 或移动 provider 时，再按用户设置、平台能力和限流策略调用 provider。
-5. 投递记录只保存必要审计信息，禁止保存完整敏感消息内容。
+5. 投递记录只保存必要审计信息，禁止保存 token、secret 和完整隐私字段。
 
 ---
 
@@ -172,9 +167,9 @@ sequenceDiagram
 
 | 表 | 说明 |
 |----|------|
-| `notification_devices` | 可选 Web Push / 移动 provider token、平台、状态、最近活跃时间 |
-| `notification_preferences` | 用户级、会话级免打扰和通知策略 |
-| `notification_deliveries` | 投递记录、状态、错误码、重试次数 |
+| `notification_deliveries` | 已实现：online push 投递记录、状态、错误 |
+| `notification_devices` | 后续：可选 Web Push / 移动 provider token、平台、状态、最近活跃时间 |
+| `notification_preferences` | 后续：用户级、会话级免打扰和通知策略 |
 
 `notification_devices` 建议字段：
 
@@ -230,33 +225,9 @@ services/notification/
 └── pkg/
 ```
 
-### 6.1 关键接口
+### 6.1 当前实现
 
-```go
-// RecipientResolver resolves notification recipients and policies.
-// RecipientResolver 解析通知收件人与投递策略。
-type RecipientResolver interface {
-    Resolve(ctx context.Context, event NotificationEvent) ([]RecipientTarget, error)
-}
-
-// PresenceClient resolves online routes from Presence service.
-// PresenceClient 从 Presence 服务查询在线路由。
-type PresenceClient interface {
-    GetLiveRoutes(ctx context.Context, userID string) ([]ConnectionRoute, error)
-}
-
-// EdgePushPublisher publishes online push messages to RabbitMQ.
-// EdgePushPublisher 向 RabbitMQ 发布在线 Edge push。
-type EdgePushPublisher interface {
-    PublishEdgePush(ctx context.Context, edgeID string, payload EdgePushPayload) error
-}
-
-// OfflineProvider sends platform push notifications.
-// OfflineProvider 发送平台离线通知。
-type OfflineProvider interface {
-    Send(ctx context.Context, req OfflinePushRequest) (ProviderResult, error)
-}
-```
+当前 `services/notification` 通过 go-zero zRPC 暴露最小 `Health` RPC；事件消费 worker 在服务启动时随 `ServiceContext` 启动。worker 消费 `notification.message.events`，调用 Conversation `ResolveMessageRecipients`、Presence `GetLiveRoutes`，再使用 RabbitMQ publisher confirm 发布 `message.new` Edge push。Redis 只用于事件级 dedupe；PostgreSQL 只记录 `notification_deliveries`。
 
 ---
 
@@ -326,10 +297,12 @@ type OfflineProvider interface {
 
 ## 10. 验收清单
 
-- [ ] Message 不直接查询 Presence，也不直接发布 `push.edge`。
-- [ ] Notification 使用 durable queue 消费领域事件，并支持重试和 DLQ。
-- [ ] 输入事件和在线 push 具备幂等策略；可选离线 provider 启用时也必须具备幂等策略。
-- [ ] 在线 push 通过 Presence 查询路由，并按 `edge_id` 聚合发布。
+- [x] Message 不直接查询 Presence，也不直接发布 `push.edge`。
+- [x] Notification 使用 durable queue 消费 `message.created.#` 领域事件，并在处理失败时 nack/requeue。
+- [x] 输入事件具备 Redis `event_id` 幂等策略。
+- [x] 在线 push 通过 Presence 查询路由，并发布到 `push.edge.{edge_id}`。
+- [x] Notification 通过 Conversation 解析 active members，不自行维护成员关系。
+- [x] Notification 过滤 sender 同设备 route，保留 sender 其他设备在线同步。
 - [ ] 可选离线 provider 调用具备超时、熔断、限流和错误分类。
 - [ ] 设备 token 加密存储，日志不输出 token 或 secret。
-- [ ] 指标和告警覆盖 event lag、DLQ、provider latency、dedupe、rate limit。
+- [ ] DLQ、限流、指标和告警覆盖 event lag、dedupe、online push success/fail。

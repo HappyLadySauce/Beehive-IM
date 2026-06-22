@@ -112,8 +112,7 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 | API | 说明 |
 |-----|------|
 | `POST /v1/ws/ticket` | 使用已认证 HTTP 会话换取一次性 WebSocket ticket |
-| `POST /v1/conversations/{conversation_id}/messages` | HTTP 发送消息，断线补偿时可用 |
-| `GET /v1/conversations/{conversation_id}/messages?after_seq=&limit=` | 拉取某会话增量消息 |
+| `GET /v1/conversations/{conversation_id}/messages?after_seq=&before_seq=&direction=&limit=` | 拉取某会话历史或增量消息 |
 | `POST /v1/messages/sync` | 批量按多个会话 cursor 拉取缺失消息 |
 | `POST /v1/messages/ack` | 上报 delivered/read 回执 |
 
@@ -146,12 +145,12 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 | 绑定字段 | 当前绑定 `user_id`、`device_id`、`session_id`、Origin；user-agent hash 后续补齐 |
 | 在线态 | Edge 建连后调用 Presence，Presence 将 session route 写入 Redis |
 | Gateway 恢复 | Edge 已有基础 rebind/resume 骨架，Gateway stream 断开后可在同一 WebSocket 内切换上游；消息缺口仍依赖后续 Message 同步补偿 |
-| 在线 push | Edge 已有 RabbitMQ `edge.push.{edge_id}` consumer 骨架，可向本机 WebSocket 写通知帧 |
+| 在线 push | Notification 已消费 `message.created.#`，查询 Conversation + Presence，并发布 `push.edge.{edge_id}`；Edge 从 `edge.push.{edge_id}` 队列写本机 WebSocket |
 | Conversation | 已新增 `proto/conversation.proto` 与 `services/conversation`，维护 `conversations`、`conversation_members`、`conversation_settings`，提供成员权限校验和 `AllocateMessageSeq` |
 | Message | 已新增 `proto/message.proto` 与 `services/message`，实现 `SendMessage`、`AckMessages`、消息持久化、发送幂等和 outbox 写入 |
 | Gateway 业务帧 | Gateway 已接入 `message.send` 和 `message.ack`，通过 Message zRPC 返回 `message.persisted` / `message.ack` |
 | Outbox | Message 内置 dispatcher，发布 `message.created.{conversation_id}` 到 RabbitMQ exchange `beehive.im.events`，使用 publisher confirm 和有界重试 |
-| 消息同步 | `SyncMessages` / `ListMessages` 补偿同步接口尚未实现，仍作为下一阶段 Web 可靠同步能力 |
+| 消息同步 | Message 已实现 `ListMessages` / `SyncMessages`，Edge 已暴露 Web HTTP 同步、历史分页和 ack 入口 |
 
 ### 3.2 内部 gRPC API
 
@@ -159,8 +158,8 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 |-----|--------|------|
 | `SendMessage` | Gateway | 已实现：发送消息并持久化，写入同事务 outbox |
 | `AckMessages` | Gateway | 已实现：写 delivered/read 回执 |
-| `SyncMessages` | API Gateway / Gateway | 计划中：按 cursor 批量同步缺失消息 |
-| `ListMessages` | API Gateway | 计划中：拉取单会话消息列表 |
+| `SyncMessages` | Edge/API Gateway | 已实现：按 cursor 批量同步缺失消息 |
+| `ListMessages` | Edge/API Gateway | 已实现：拉取单会话消息列表 |
 
 ### 3.3 SendMessage 请求
 
@@ -294,7 +293,7 @@ Payload：
 }
 ```
 
-事件中只放通知和同步所需的最小载荷。完整消息内容以 Message 查询结果为准；敏感内容不得进入无权限消费者。
+当前实现的 `message.created` 事件包含 `content_type` 和 text JSON content，用于 v1 Web 在线 push；Message/PostgreSQL 仍是最终事实源。后续引入敏感内容、端到端加密或复杂权限后，事件 payload 应收敛为最小通知载荷，接收端通过 Message 同步接口拉取完整内容。
 
 ### 5.2 Dispatcher 要求
 
@@ -574,8 +573,8 @@ Web 客户端建议上报：
 - [x] Message 写入 `messages + outbox_events` 同事务。
 - [x] `UNIQUE(conversation_id, seq)` 和 `UNIQUE(sender_id, device_id, client_msg_id)` 已落库。
 - [x] 发送接口重复 `client_msg_id` 返回同一条已持久化消息。
-- [ ] WebSocket push 丢失时，Web 客户端能通过 `SyncMessages` 补齐。
+- [x] WebSocket push 丢失时，Web 客户端可通过 Edge HTTP `SyncMessages` 补齐。
 - [ ] Web 多标签页只保留一个 WebSocket leader。
-- [ ] WebSocket 鉴权使用一次性 `ws_ticket`，JWT/access token 不进入 WS query。
+- [x] WebSocket 鉴权使用一次性 `ws_ticket`，JWT/access token 不进入 WS query。
 - [x] delivered/read ack 支持按 seqs 批量、幂等和权限校验。
 - [ ] 指标覆盖发送延迟、同步缺口、outbox pending、重连次数和本地 pending 数。

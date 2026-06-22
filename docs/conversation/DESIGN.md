@@ -30,6 +30,8 @@ Conversation 服务是 IM 系统的会话事实边界，负责维护会话、成
 | 基础 API | 已实现创建、查询、列表、成员新增/移除、角色更新、用户设置更新 |
 | 权限 | 已实现 active 成员、owner/admin 管理成员、用户只能改自己的会话设置 |
 | 发送权限 | 已实现 `CheckSendPermission`，校验会话 active、成员 active、未超过 `muted_until` |
+| 读取权限 | 已实现 `CheckReadPermission`，校验会话 active、成员 active |
+| 通知收件人 | 已实现 `ResolveMessageRecipients`，返回 active members，供 Notification 查询在线路由 |
 | 序号 | 已实现 `AllocateMessageSeq`，事务行锁递增 `conversations.current_seq` |
 | 事件 | 本阶段尚未发布 conversation 领域事件 |
 
@@ -83,8 +85,9 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 | `UpdateMemberRole` | Gateway / API | 变更成员角色 |
 | `UpdateConversationSettings` | Gateway / API | 修改会话设置 |
 | `CheckSendPermission` | Message | 校验发送权限 |
+| `CheckReadPermission` | Message | 校验历史消息和同步读取权限 |
 | `AllocateMessageSeq` | Message | 分配会话内单调递增消息序号 |
-| `ResolveNotificationTargets` | Notification | 计划中：解析收件人和通知策略 |
+| `ResolveMessageRecipients` | Notification | 解析消息通知收件人，当前返回 active members |
 
 ### 3.1 权限语义
 
@@ -162,7 +165,7 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 |------|----------|
 | Gateway | 转发客户端会话管理请求；不直接修改数据库 |
 | Message | 发送前校验权限，获取或校验会话序号 |
-| Notification | 解析收件人、免打扰、离线通知策略 |
+| Notification | 解析 active 收件人；免打扰、离线通知策略后续扩展 |
 | User | 查询用户基础资料快照，不拥有用户事实 |
 | Presence | 无直接依赖；在线态由 Notification 查询 Presence |
 
@@ -196,6 +199,6 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 
 - [x] Message 发送前通过 Conversation 校验成员权限。
 - [x] 会话序号具备单调递增保证，并有 Message 唯一索引兜底。
-- [ ] Notification 不自行维护成员和免打扰规则，统一调用 Conversation。
+- [x] Notification 不自行维护成员关系，统一调用 Conversation；免打扰规则后续扩展。
 - [ ] 成员变更发布 `conversation.updated.#` 或等价领域事件。
 - [x] 会话基础读写接口具备权限校验和明确错误码。

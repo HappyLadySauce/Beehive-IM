@@ -93,7 +93,7 @@ flowchart TB
 | Conversation | 会话、成员、权限、会话设置 | 可选热点缓存 | 注册、配置 | 发布会话事件 |
 | Message | 消息、会话序号、outbox | 不访问 | 注册、配置 | 发布消息事件 |
 | Presence | 不访问 | 在线态、会话路由、订阅状态 | 注册、配置 | 可选发布在线事件 |
-| Notification | 设备 token、通知设置、投递记录 | 去重、限流、短 TTL 状态 | 注册、配置、secrets | 消费消息/会话事件；发布 Edge push |
+| Notification | 投递记录；后续设备 token、通知设置 | 去重、后续限流、短 TTL 状态 | 注册、配置、secrets | 消费消息事件；发布 Edge push |
 
 ### 2.2 共享基础设施包
 
@@ -273,8 +273,8 @@ sequenceDiagram
 | `config/message/max_content_bytes` | `8192` | 是 | 单条文本消息内容上限 |
 | `config/message/send.rate_limit_per_min` | `120` | 是 | 单用户发送限流 |
 | `config/notification/online_push_ttl` | `60s` | 是 | Edge 在线推送通知 TTL |
-| `config/notification/offline.enabled` | `true` | 是 | 是否启用离线厂商推送 |
-| `config/notification/provider.timeout` | `2s` | 是 | 可选离线 provider 单次调用超时 |
+| `config/notification/offline.enabled` | `false` | 是 | 后续：是否启用离线厂商推送 |
+| `config/notification/provider.timeout` | `2s` | 是 | 后续：可选离线 provider 单次调用超时 |
 | `config/notification/dedupe_ttl` | `24h` | 是 | 通知事件去重窗口 |
 | `config/rabbitmq/url` | 部署写入 | 否 | 连接重建需滚动重启 |
 | `config/redis/addr` | 部署写入 | 否 | 连接重建需滚动重启 |
@@ -518,7 +518,7 @@ Notification 或其他内部服务必须通过 Presence `GetLiveRoutes` 查询�
 2. Presence 批量校验 `conn:meta:{conn_id}` 和 `session:route:{session_id}` 是否存在，且 `edge_id`、`user_id`、`device_id` 与索引一致。
 3. Presence 过滤不存在或不一致的连接。
 4. Presence 对残留索引做异步清理，不阻塞主查询路径。
-5. Notification 按 `edge_id` 聚合后发布 RabbitMQ push notification。
+5. Notification 当前按在线 route 发布 RabbitMQ push notification；后续可按 `edge_id` 聚合。
 
 ### 5.9 清理任务
 
@@ -655,7 +655,7 @@ Edge 下线：
 | `presence.presence_ttl` | 是 | 下一次连接写入或心跳续期生效 |
 | `presence.cleanup.batch_size` | 是 | 下一轮清理任务生效 |
 | `notification.online_push_ttl` | 是 | 下一次在线通知发布生效 |
-| `notification.offline.enabled` | 是 | 下一次通知编排生效 |
+| `notification.offline.enabled` | 是 | 后续离线 provider 启用后生效 |
 | `jwt.access_ttl` | 是 | 只影响新签发 token |
 | `jwt.secret` | 否 | v1 需要滚动重启 |
 | 数据库、Redis、RabbitMQ 地址 | 否 | 连接重建需要滚动重启 |
@@ -710,10 +710,10 @@ v1 将 Edge push 定义为 Notification 到 Edge 的在线通知，不作为消�
 | 项 | 要求 |
 |----|------|
 | 队列名 | `edge.push.{edge_id}` |
-| 队列类型 | 非 durable、exclusive、auto-delete |
+| 队列类型 | 非 durable、auto-delete |
 | 绑定 | `beehive.im.push` + `push.edge.{edge_id}` |
 | 消息 TTL | 建议 30s 到 120s，超过在线窗口直接丢弃或进入 DLQ |
-| Ack | Edge 写入本地 WebSocket buffer 成功后 ack |
+| Ack | Edge 写入本地 WebSocket buffer 成功或目标连接不存在后 ack；在线 push 丢失由 Message sync 补偿 |
 | Prefetch | 按 Edge 连接数和写 buffer 容量配置，必须有限 |
 | 幂等 | payload 必须携带 `event_id`、`notification_id`、`message_id`、`conversation_id`、`seq` |
 
@@ -727,14 +727,14 @@ Edge 崩溃时该实例队列删除，未投递通知可能丢失；这是可接
 
 | 消费者 | Queue | 绑定 | 用途 |
 |--------|-------|------|------|
-| Notification | `notification.message.events` | `message.created.#`、`conversation.updated.#` | 在线/离线通知编排 |
+| Notification | `notification.message.events` | `message.created.#`；后续 `conversation.updated.#` | 在线通知编排；离线通知后续扩展 |
 | Audit | `audit.message.events` | `message.created.#` | 审计日志 |
 | Search | `search.message.events` | `message.created.#` | 全文索引 |
 | Analytics | `analytics.events` | `message.created.#`、`conversation.updated.#` | 统计分析 |
 
 不同消费者必须使用不同 queue，避免广播事件被竞争消费。
 
-Notification 消费 `message.created.#`、`conversation.updated.#` 等领域事件后，必须先完成事件去重、通知偏好判断、在线路由查询和离线策略判断，再向 `beehive.im.push` 发布 `push.edge.{edge_id}`。Notification 发布 Edge push 也必须启用 publisher confirm；发布失败不得影响 Message 已持久化事实，只能进入重试或 DLQ。
+当前 Notification 消费 `message.created.#` 后，先完成事件去重、Conversation 收件人解析和 Presence 在线路由查询，再向 `beehive.im.push` 发布 `push.edge.{edge_id}`。Notification 发布 Edge push 已启用 publisher confirm；发布失败会 nack/requeue 输入事件。通知偏好、离线 provider、retry exchange 和 DLQ 后续补齐。
 
 ### 7.6 发布要求
 
@@ -794,6 +794,7 @@ docker compose -f docker\Infrastructure\docker-compose.yaml up -d
 go run .\services\presence -f .\services\presence\etc\beehiveim.presence.yaml
 go run .\services\conversation -f .\services\conversation\etc\beehiveim.conversation.yaml
 go run .\services\message -f .\services\message\etc\beehiveim.message.yaml
+go run .\services\notification -f .\services\notification\etc\beehiveim.notification.yaml
 go run .\services\gateway -f .\services\gateway\etc\beehiveim.gateway.yaml
 go run .\services\user -f .\services\user\etc\beehiveim.user.yaml
 $env:RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/'
@@ -807,7 +808,7 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 | PostgreSQL | `pkg/postgres` 连接池；User 读取用户表，Conversation 读写会话表，Message 写消息、回执和 outbox |
 | Redis | `pkg/redis` 客户端；Presence 独占在线态 key 写入 |
 | etcd | `pkg/etcd` 服务注册/发现；Gateway 注册，Edge watch Gateway |
-| RabbitMQ | `pkg/rabbitmq` 拓扑/publish 基础封装；Message outbox 发布 `beehive.im.events`，Edge 消费 `edge.push.{edge_id}` |
+| RabbitMQ | `pkg/rabbitmq` 拓扑/publish 基础封装；Message outbox 发布 `beehive.im.events`，Notification 消费 `message.created.#` 并发布 `push.edge.{edge_id}`，Edge 消费 `edge.push.{edge_id}` |
 
 为避免与 go-zero 内置 `Etcd` / `Redis` 配置字段冲突，业务中间件配置使用 `Registry`、`RedisStore` 等显式名称。
 
@@ -898,8 +899,8 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 ### 11.5 Notification
 
-- Notification consumer 必须设置有限 prefetch，并用有界 worker pool 编排在线/离线通知。
-- 在线 push 按 `edge_id` 聚合，减少 RabbitMQ publish 次数和 Edge 写放大。
+- Notification consumer 必须设置有限 prefetch，并用有界 worker pool 编排在线通知；离线通知后续扩展。
+- 当前在线 push 按 route 发布到目标 `edge_id`；后续可按 `edge_id` 聚合，减少 RabbitMQ publish 次数和 Edge 写放大。
 - 可选离线 provider 调用必须有超时、熔断、限流和失败降级，禁止阻塞在线 push。
 - 幂等去重以 `event_id + recipient_id + device_id` 为核心，避免 MQ 重投导致重复通知。
 
@@ -978,17 +979,17 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 - [ ] PostgreSQL 迁移可重复执行，staging 已验证。
 - [x] Message 写入使用 `messages + outbox_events` 同事务。
-- [x] Message 发送接口支持 `client_msg_id` 幂等；客户端按 `conversation_id + seq` 补偿同步仍待实现。
+- [x] Message 发送接口支持 `client_msg_id` 幂等；Edge HTTP 已暴露 `ListMessages` / `SyncMessages` 补偿同步。
 - [x] Outbox dispatcher 使用 publisher confirm，并有有界重试；DLQ 和指标仍待实现。
 - [x] Presence 提供 `UpsertConnection`、`RefreshConnection`、`RebindGateway`、`RemoveConnection`、`GetLiveRoutes` API。
 - [ ] Presence 在线态写入、Gateway rebind、断开、续期使用 Lua 或事务，断开为 compare-and-delete。
-- [ ] Notification 消费 `message.created.#` 后完成幂等、偏好判断、Presence 路由查询和在线/离线分流。
-- [ ] Notification 在线 push、去重、限流、重试和 DLQ 均有指标与测试；可选离线 provider 启用时补齐 provider 指标与测试。
+- [x] Notification 消费 `message.created.#` 后完成 Redis 幂等、Conversation 收件人解析、Presence 路由查询和在线 push。
+- [ ] Notification 通知偏好、离线 provider、限流、retry exchange、DLQ 和完整指标仍待实现。
 - [x] Gateway 服务注册只写 etcd，不写 Redis 服务发现 key。
 - [x] Edge Watch 使用全量加载 + Watch 更新 Gateway 视图。
 - [ ] `jwt.secret` v1 明确为滚动重启生效，不做热更新。
 - [ ] WebSocket 鉴权使用一次性 `ws_ticket`，生产禁止 query access token。
-- [ ] RabbitMQ Edge push 明确为在线通知，客户端具备消息补偿同步。
+- [x] RabbitMQ Edge push 明确为在线通知，客户端可通过 Message sync 补偿。
 - [x] Edge -> Gateway 上游连接具备 deadline、背压、rebind/resume 和失败兜底重连。
 - [ ] 生产环境 TLS、RBAC、最小权限、secret 脱敏已配置。
 - [ ] 指标、日志、告警覆盖 PostgreSQL、Redis、etcd、RabbitMQ、Gateway、Edge、Presence、Notification。
@@ -999,7 +1000,7 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 | 阶段 | 内容 |
 |------|------|
-| v1 | 四类中间件本地 compose；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Conversation 基础 API；Message 持久化与 outbox 基线 |
-| v1.1 | JWT 黑名单；Presence 清理任务；Notification 消费 `message.created` 并发布 Edge push；基础观测面板 |
-| v2 | etcd 3 节点 + TLS + RBAC；RabbitMQ Quorum Queue；gRPC etcd resolver；Message 同步接口完善；Web Push / 移动 provider 扩展 |
+| v1 | 四类中间件本地 compose；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Conversation 基础 API；Message 持久化/outbox/sync；Notification 在线 Edge push |
+| v1.1 | JWT 黑名单；Presence 清理任务；Notification DLQ/限流/指标；基础观测面板 |
+| v2 | etcd 3 节点 + TLS + RBAC；RabbitMQ Quorum Queue；gRPC etcd resolver；Web Push / 移动 provider 扩展 |
 | v3 | RS256 + JWKS；配置灰度；跨 region 路由；RabbitMQ federation 或替代事件总线评估 |
