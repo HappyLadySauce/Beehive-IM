@@ -1,7 +1,7 @@
 # Beehive-IM 基础设施与中间件设计
 
-> 版本：v1.2
-> 适用范围：PostgreSQL、Redis、etcd、RabbitMQ、Conversation、Presence、Notification 的生产级职责划分、接口契约、数据流、容灾与运维约定
+> 版本：v1.3
+> 适用范围：PostgreSQL、Redis、etcd、RabbitMQ、Auth、Conversation、Message、Presence、Notification 的生产级职责划分、接口契约、数据流、容灾与运维约定
 > 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docker/Infrastructure/docker-compose.yaml`](../../docker/Infrastructure/docker-compose.yaml)
 
 ---
@@ -65,7 +65,7 @@ flowchart TB
 
 | 中间件 | 做什么 | 不做什么 |
 |--------|--------|----------|
-| **PostgreSQL** | 用户、认证、消息、会话、outbox 等业务事实源 | 在线态、服务注册、长连接推送 |
+| **PostgreSQL** | 用户、认证、单聊/群聊、消息、回执、outbox 等业务事实源 | 在线态、服务注册、长连接推送 |
 | **Redis** | OAuth state、JWT 黑名单、Presence 在线态索引、Notification 去重/限流等短 TTL 运行态 | 服务注册、可靠消息队列、长期业务数据 |
 | **etcd** | 服务注册、运行时配置、secrets 分发 | 业务数据、在线态、消息队列 |
 | **RabbitMQ** | 领域事件通知、Edge 在线推送通知 | 业务事实源、服务发现、WebSocket 连接管理 |
@@ -86,11 +86,11 @@ flowchart TB
 
 | 服务 | PostgreSQL | Redis | etcd | RabbitMQ |
 |------|:----------:|:-----:|:----:|:--------:|
-| Auth | 用户、OAuth 绑定、refresh token | OAuth state、JWT blacklist | 注册、配置、secrets | 可选发布认证事件 |
+| Auth | 用户、本地账号、OAuth 绑定、refresh token | OAuth state、JWT blacklist | 注册、配置、secrets | 可选发布认证事件 |
 | User | 用户资料 | 可选热点缓存 | 注册、配置 | 可选消费领域事件 |
 | Edge | 不访问 | 不访问 | 注册、配置、Watch Gateway | 消费 Edge push |
 | Gateway | 不访问 | 不访问 | 注册、配置、secrets | 不访问 |
-| Conversation | 会话、成员、权限、会话设置 | 可选热点缓存 | 注册、配置 | 发布会话事件 |
+| Conversation | 单聊唯一、群聊生命周期、成员、权限、可见范围、read state、会话设置 | 可选热点缓存 | 注册、配置 | 发布会话事件 |
 | Message | 消息、会话序号、outbox | 不访问 | 注册、配置 | 发布消息事件 |
 | Presence | 不访问 | 在线态、会话路由、订阅状态 | 注册、配置 | 可选发布在线事件 |
 | Notification | 投递记录；后续设备 token、通知设置 | 去重、后续限流、短 TTL 状态 | 注册、配置、secrets | 消费消息事件；发布 Edge push |
@@ -170,7 +170,9 @@ sequenceDiagram
     participant G as Gateway
     participant P as Presence
 
-    C->>E: WSS /ws with JWT
+    C->>E: HTTPS /v1/ws/ticket with Bearer JWT
+    E-->>C: one-time ws_ticket
+    C->>E: WSS /ws?ticket=...
     E->>ET: Read in-memory gateway view from Watch
     E->>G: internal attach(session_id, auth_context)
     G->>ET: Keep service lease and load config
@@ -791,12 +793,13 @@ docker compose、迁移脚本和本地环境变量必须使用同一组数据库
 ```powershell
 docker compose -f docker\Infrastructure\docker-compose.yaml up -d
 .\sql\migrate.ps1
+go run .\services\user -f .\services\user\etc\beehiveim.user.yaml
+go run .\services\auth -f .\services\auth\etc\beehiveim.auth.yaml
 go run .\services\presence -f .\services\presence\etc\beehiveim.presence.yaml
 go run .\services\conversation -f .\services\conversation\etc\beehiveim.conversation.yaml
 go run .\services\message -f .\services\message\etc\beehiveim.message.yaml
 go run .\services\notification -f .\services\notification\etc\beehiveim.notification.yaml
 go run .\services\gateway -f .\services\gateway\etc\beehiveim.gateway.yaml
-go run .\services\user -f .\services\user\etc\beehiveim.user.yaml
 $env:RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/'
 go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 ```
@@ -805,7 +808,7 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 | 中间件 | 当前接入点 |
 |--------|------------|
-| PostgreSQL | `pkg/postgres` 连接池；User 读取用户表，Conversation 读写会话表，Message 写消息、回执和 outbox |
+| PostgreSQL | `pkg/postgres` 连接池；Auth 写本地账号和 refresh token，User 读取用户表，Conversation 读写会话表和产品迁移 `006_conversation_product.sql`，Message 写消息、回执和 outbox |
 | Redis | `pkg/redis` 客户端；Presence 独占在线态 key 写入 |
 | etcd | `pkg/etcd` 服务注册/发现；Gateway 注册，Edge watch Gateway |
 | RabbitMQ | `pkg/rabbitmq` 拓扑/publish 基础封装；Message outbox 发布 `beehive.im.events`，Notification 消费 `message.created.#` 并发布 `push.edge.{edge_id}`，Edge 消费 `edge.push.{edge_id}` |
@@ -978,6 +981,8 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 进入实现或上线前必须满足：
 
 - [ ] PostgreSQL 迁移可重复执行，staging 已验证。
+- [x] Auth 本地注册/登录/刷新/登出已使用 PostgreSQL、bcrypt、HS256 JWT 和 refresh token hash。
+- [x] Conversation 已落地单聊唯一、群聊生命周期、成员可见范围和 read state。
 - [x] Message 写入使用 `messages + outbox_events` 同事务。
 - [x] Message 发送接口支持 `client_msg_id` 幂等；Edge HTTP 已暴露 `ListMessages` / `SyncMessages` 补偿同步。
 - [x] Outbox dispatcher 使用 publisher confirm，并有有界重试；DLQ 和指标仍待实现。
@@ -988,7 +993,7 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 - [x] Gateway 服务注册只写 etcd，不写 Redis 服务发现 key。
 - [x] Edge Watch 使用全量加载 + Watch 更新 Gateway 视图。
 - [ ] `jwt.secret` v1 明确为滚动重启生效，不做热更新。
-- [ ] WebSocket 鉴权使用一次性 `ws_ticket`，生产禁止 query access token。
+- [x] WebSocket 鉴权使用一次性 `ws_ticket`，生产禁止 query access token；ticket 签发入口默认要求 Bearer JWT。
 - [x] RabbitMQ Edge push 明确为在线通知，客户端可通过 Message sync 补偿。
 - [x] Edge -> Gateway 上游连接具备 deadline、背压、rebind/resume 和失败兜底重连。
 - [ ] 生产环境 TLS、RBAC、最小权限、secret 脱敏已配置。
@@ -1000,7 +1005,7 @@ go run .\services\edge -f .\services\edge\etc\beehiveim.edge.yaml
 
 | 阶段 | 内容 |
 |------|------|
-| v1 | 四类中间件本地 compose；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Conversation 基础 API；Message 持久化/outbox/sync；Notification 在线 Edge push |
+| v1 | 四类中间件本地 compose；本地 Auth/JWT；Edge 代理长连接；Gateway 内网上游；Presence 在线态；Conversation 单聊/群聊产品 API；Message 持久化/outbox/sync；Notification 在线 Edge push |
 | v1.1 | JWT 黑名单；Presence 清理任务；Notification DLQ/限流/指标；基础观测面板 |
 | v2 | etcd 3 节点 + TLS + RBAC；RabbitMQ Quorum Queue；gRPC etcd resolver；Web Push / 移动 provider 扩展 |
 | v3 | RS256 + JWKS；配置灰度；跨 region 路由；RabbitMQ federation 或替代事件总线评估 |

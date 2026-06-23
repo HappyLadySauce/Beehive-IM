@@ -2,7 +2,9 @@ package logic
 
 import (
 	"context"
+	"strings"
 
+	"github.com/HappyLadySauce/Beehive-IM/services/auth/internal/repository"
 	"github.com/HappyLadySauce/Beehive-IM/services/auth/internal/svc"
 	"github.com/HappyLadySauce/Beehive-IM/services/auth/pb"
 
@@ -24,7 +26,14 @@ func NewLogoutLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LogoutLogi
 }
 
 func (l *LogoutLogic) Logout(in *pb.LogoutRequest) (*pb.LogoutResponse, error) {
-	// todo: add your logic here and delete this line
+	refreshToken := strings.TrimSpace(in.GetRefreshToken())
+	if refreshToken == "" {
+		return nil, authStatusError(repository.ErrInvalidRefreshToken)
+	}
+	if err := l.svcCtx.Auth.RevokeRefreshToken(l.ctx, repository.HashRefreshToken(refreshToken)); err != nil {
+		l.Errorf("logout failed: error=%v", err)
+		return nil, authStatusError(err)
+	}
 
 	return &pb.LogoutResponse{}, nil
 }

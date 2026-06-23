@@ -653,6 +653,8 @@ type ConversationCursor struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 	LastSeq        int64                  `protobuf:"varint,2,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	VisibleFromSeq int64                  `protobuf:"varint,3,opt,name=visible_from_seq,json=visibleFromSeq,proto3" json:"visible_from_seq,omitempty"`
+	VisibleToSeq   int64                  `protobuf:"varint,4,opt,name=visible_to_seq,json=visibleToSeq,proto3" json:"visible_to_seq,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -697,6 +699,20 @@ func (x *ConversationCursor) GetConversationId() string {
 func (x *ConversationCursor) GetLastSeq() int64 {
 	if x != nil {
 		return x.LastSeq
+	}
+	return 0
+}
+
+func (x *ConversationCursor) GetVisibleFromSeq() int64 {
+	if x != nil {
+		return x.VisibleFromSeq
+	}
+	return 0
+}
+
+func (x *ConversationCursor) GetVisibleToSeq() int64 {
+	if x != nil {
+		return x.VisibleToSeq
 	}
 	return 0
 }
@@ -889,6 +905,254 @@ func (x *SyncMessagesResponse) GetConversations() []*ConversationSyncResult {
 	return nil
 }
 
+type ConversationSummaryCursor struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	LastReadSeq    int64                  `protobuf:"varint,2,opt,name=last_read_seq,json=lastReadSeq,proto3" json:"last_read_seq,omitempty"`
+	VisibleFromSeq int64                  `protobuf:"varint,3,opt,name=visible_from_seq,json=visibleFromSeq,proto3" json:"visible_from_seq,omitempty"`
+	VisibleToSeq   int64                  `protobuf:"varint,4,opt,name=visible_to_seq,json=visibleToSeq,proto3" json:"visible_to_seq,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ConversationSummaryCursor) Reset() {
+	*x = ConversationSummaryCursor{}
+	mi := &file_message_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConversationSummaryCursor) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConversationSummaryCursor) ProtoMessage() {}
+
+func (x *ConversationSummaryCursor) ProtoReflect() protoreflect.Message {
+	mi := &file_message_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConversationSummaryCursor.ProtoReflect.Descriptor instead.
+func (*ConversationSummaryCursor) Descriptor() ([]byte, []int) {
+	return file_message_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ConversationSummaryCursor) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *ConversationSummaryCursor) GetLastReadSeq() int64 {
+	if x != nil {
+		return x.LastReadSeq
+	}
+	return 0
+}
+
+func (x *ConversationSummaryCursor) GetVisibleFromSeq() int64 {
+	if x != nil {
+		return x.VisibleFromSeq
+	}
+	return 0
+}
+
+func (x *ConversationSummaryCursor) GetVisibleToSeq() int64 {
+	if x != nil {
+		return x.VisibleToSeq
+	}
+	return 0
+}
+
+type ConversationSummary struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	ConversationId string                 `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	LastMessage    *MessageItem           `protobuf:"bytes,2,opt,name=last_message,json=lastMessage,proto3" json:"last_message,omitempty"`
+	LatestSeq      int64                  `protobuf:"varint,3,opt,name=latest_seq,json=latestSeq,proto3" json:"latest_seq,omitempty"`
+	UnreadCount    int64                  `protobuf:"varint,4,opt,name=unread_count,json=unreadCount,proto3" json:"unread_count,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ConversationSummary) Reset() {
+	*x = ConversationSummary{}
+	mi := &file_message_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConversationSummary) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConversationSummary) ProtoMessage() {}
+
+func (x *ConversationSummary) ProtoReflect() protoreflect.Message {
+	mi := &file_message_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConversationSummary.ProtoReflect.Descriptor instead.
+func (*ConversationSummary) Descriptor() ([]byte, []int) {
+	return file_message_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ConversationSummary) GetConversationId() string {
+	if x != nil {
+		return x.ConversationId
+	}
+	return ""
+}
+
+func (x *ConversationSummary) GetLastMessage() *MessageItem {
+	if x != nil {
+		return x.LastMessage
+	}
+	return nil
+}
+
+func (x *ConversationSummary) GetLatestSeq() int64 {
+	if x != nil {
+		return x.LatestSeq
+	}
+	return 0
+}
+
+func (x *ConversationSummary) GetUnreadCount() int64 {
+	if x != nil {
+		return x.UnreadCount
+	}
+	return 0
+}
+
+type GetConversationSummariesRequest struct {
+	state         protoimpl.MessageState       `protogen:"open.v1"`
+	Cursors       []*ConversationSummaryCursor `protobuf:"bytes,1,rep,name=cursors,proto3" json:"cursors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConversationSummariesRequest) Reset() {
+	*x = GetConversationSummariesRequest{}
+	mi := &file_message_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConversationSummariesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConversationSummariesRequest) ProtoMessage() {}
+
+func (x *GetConversationSummariesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_message_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConversationSummariesRequest.ProtoReflect.Descriptor instead.
+func (*GetConversationSummariesRequest) Descriptor() ([]byte, []int) {
+	return file_message_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetConversationSummariesRequest) GetCursors() []*ConversationSummaryCursor {
+	if x != nil {
+		return x.Cursors
+	}
+	return nil
+}
+
+type GetConversationSummariesResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Accepted      bool                   `protobuf:"varint,1,opt,name=accepted,proto3" json:"accepted,omitempty"`
+	ErrorCode     string                 `protobuf:"bytes,2,opt,name=error_code,json=errorCode,proto3" json:"error_code,omitempty"`
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Summaries     []*ConversationSummary `protobuf:"bytes,4,rep,name=summaries,proto3" json:"summaries,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConversationSummariesResponse) Reset() {
+	*x = GetConversationSummariesResponse{}
+	mi := &file_message_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConversationSummariesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConversationSummariesResponse) ProtoMessage() {}
+
+func (x *GetConversationSummariesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_message_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetConversationSummariesResponse.ProtoReflect.Descriptor instead.
+func (*GetConversationSummariesResponse) Descriptor() ([]byte, []int) {
+	return file_message_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GetConversationSummariesResponse) GetAccepted() bool {
+	if x != nil {
+		return x.Accepted
+	}
+	return false
+}
+
+func (x *GetConversationSummariesResponse) GetErrorCode() string {
+	if x != nil {
+		return x.ErrorCode
+	}
+	return ""
+}
+
+func (x *GetConversationSummariesResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *GetConversationSummariesResponse) GetSummaries() []*ConversationSummary {
+	if x != nil {
+		return x.Summaries
+	}
+	return nil
+}
+
 var File_message_proto protoreflect.FileDescriptor
 
 const file_message_proto_rawDesc = "" +
@@ -960,10 +1224,12 @@ const file_message_proto_rawDesc = "" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12;\n" +
 	"\bmessages\x18\x04 \x03(\v2\x1f.beehive_im.message.MessageItemR\bmessages\x12\x1d\n" +
 	"\n" +
-	"latest_seq\x18\x05 \x01(\x03R\tlatestSeq\"X\n" +
+	"latest_seq\x18\x05 \x01(\x03R\tlatestSeq\"\xa8\x01\n" +
 	"\x12ConversationCursor\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\x19\n" +
-	"\blast_seq\x18\x02 \x01(\x03R\alastSeq\"\x9d\x01\n" +
+	"\blast_seq\x18\x02 \x01(\x03R\alastSeq\x12(\n" +
+	"\x10visible_from_seq\x18\x03 \x01(\x03R\x0evisibleFromSeq\x12$\n" +
+	"\x0evisible_to_seq\x18\x04 \x01(\x03R\fvisibleToSeq\"\x9d\x01\n" +
 	"\x16ConversationSyncResult\x12'\n" +
 	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12;\n" +
 	"\bmessages\x18\x02 \x03(\v2\x1f.beehive_im.message.MessageItemR\bmessages\x12\x1d\n" +
@@ -978,12 +1244,32 @@ const file_message_proto_rawDesc = "" +
 	"\n" +
 	"error_code\x18\x02 \x01(\tR\terrorCode\x12\x18\n" +
 	"\amessage\x18\x03 \x01(\tR\amessage\x12P\n" +
-	"\rconversations\x18\x04 \x03(\v2*.beehive_im.message.ConversationSyncResultR\rconversations2\x96\x03\n" +
+	"\rconversations\x18\x04 \x03(\v2*.beehive_im.message.ConversationSyncResultR\rconversations\"\xb8\x01\n" +
+	"\x19ConversationSummaryCursor\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12\"\n" +
+	"\rlast_read_seq\x18\x02 \x01(\x03R\vlastReadSeq\x12(\n" +
+	"\x10visible_from_seq\x18\x03 \x01(\x03R\x0evisibleFromSeq\x12$\n" +
+	"\x0evisible_to_seq\x18\x04 \x01(\x03R\fvisibleToSeq\"\xc4\x01\n" +
+	"\x13ConversationSummary\x12'\n" +
+	"\x0fconversation_id\x18\x01 \x01(\tR\x0econversationId\x12B\n" +
+	"\flast_message\x18\x02 \x01(\v2\x1f.beehive_im.message.MessageItemR\vlastMessage\x12\x1d\n" +
+	"\n" +
+	"latest_seq\x18\x03 \x01(\x03R\tlatestSeq\x12!\n" +
+	"\funread_count\x18\x04 \x01(\x03R\vunreadCount\"j\n" +
+	"\x1fGetConversationSummariesRequest\x12G\n" +
+	"\acursors\x18\x01 \x03(\v2-.beehive_im.message.ConversationSummaryCursorR\acursors\"\xbe\x01\n" +
+	" GetConversationSummariesResponse\x12\x1a\n" +
+	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x1d\n" +
+	"\n" +
+	"error_code\x18\x02 \x01(\tR\terrorCode\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12E\n" +
+	"\tsummaries\x18\x04 \x03(\v2'.beehive_im.message.ConversationSummaryR\tsummaries2\x9e\x04\n" +
 	"\x0eMessageService\x12^\n" +
 	"\vSendMessage\x12&.beehive_im.message.SendMessageRequest\x1a'.beehive_im.message.SendMessageResponse\x12^\n" +
 	"\vAckMessages\x12&.beehive_im.message.AckMessagesRequest\x1a'.beehive_im.message.AckMessagesResponse\x12a\n" +
 	"\fListMessages\x12'.beehive_im.message.ListMessagesRequest\x1a(.beehive_im.message.ListMessagesResponse\x12a\n" +
-	"\fSyncMessages\x12'.beehive_im.message.SyncMessagesRequest\x1a(.beehive_im.message.SyncMessagesResponseB\x06Z\x04./pbb\x06proto3"
+	"\fSyncMessages\x12'.beehive_im.message.SyncMessagesRequest\x1a(.beehive_im.message.SyncMessagesResponse\x12\x85\x01\n" +
+	"\x18GetConversationSummaries\x123.beehive_im.message.GetConversationSummariesRequest\x1a4.beehive_im.message.GetConversationSummariesResponseB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_message_proto_rawDescOnce sync.Once
@@ -997,38 +1283,47 @@ func file_message_proto_rawDescGZIP() []byte {
 	return file_message_proto_rawDescData
 }
 
-var file_message_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_message_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_message_proto_goTypes = []any{
-	(*SendMessageRequest)(nil),     // 0: beehive_im.message.SendMessageRequest
-	(*SendMessageResponse)(nil),    // 1: beehive_im.message.SendMessageResponse
-	(*AckMessagesRequest)(nil),     // 2: beehive_im.message.AckMessagesRequest
-	(*AckMessagesResponse)(nil),    // 3: beehive_im.message.AckMessagesResponse
-	(*MessageItem)(nil),            // 4: beehive_im.message.MessageItem
-	(*ListMessagesRequest)(nil),    // 5: beehive_im.message.ListMessagesRequest
-	(*ListMessagesResponse)(nil),   // 6: beehive_im.message.ListMessagesResponse
-	(*ConversationCursor)(nil),     // 7: beehive_im.message.ConversationCursor
-	(*ConversationSyncResult)(nil), // 8: beehive_im.message.ConversationSyncResult
-	(*SyncMessagesRequest)(nil),    // 9: beehive_im.message.SyncMessagesRequest
-	(*SyncMessagesResponse)(nil),   // 10: beehive_im.message.SyncMessagesResponse
+	(*SendMessageRequest)(nil),               // 0: beehive_im.message.SendMessageRequest
+	(*SendMessageResponse)(nil),              // 1: beehive_im.message.SendMessageResponse
+	(*AckMessagesRequest)(nil),               // 2: beehive_im.message.AckMessagesRequest
+	(*AckMessagesResponse)(nil),              // 3: beehive_im.message.AckMessagesResponse
+	(*MessageItem)(nil),                      // 4: beehive_im.message.MessageItem
+	(*ListMessagesRequest)(nil),              // 5: beehive_im.message.ListMessagesRequest
+	(*ListMessagesResponse)(nil),             // 6: beehive_im.message.ListMessagesResponse
+	(*ConversationCursor)(nil),               // 7: beehive_im.message.ConversationCursor
+	(*ConversationSyncResult)(nil),           // 8: beehive_im.message.ConversationSyncResult
+	(*SyncMessagesRequest)(nil),              // 9: beehive_im.message.SyncMessagesRequest
+	(*SyncMessagesResponse)(nil),             // 10: beehive_im.message.SyncMessagesResponse
+	(*ConversationSummaryCursor)(nil),        // 11: beehive_im.message.ConversationSummaryCursor
+	(*ConversationSummary)(nil),              // 12: beehive_im.message.ConversationSummary
+	(*GetConversationSummariesRequest)(nil),  // 13: beehive_im.message.GetConversationSummariesRequest
+	(*GetConversationSummariesResponse)(nil), // 14: beehive_im.message.GetConversationSummariesResponse
 }
 var file_message_proto_depIdxs = []int32{
 	4,  // 0: beehive_im.message.ListMessagesResponse.messages:type_name -> beehive_im.message.MessageItem
 	4,  // 1: beehive_im.message.ConversationSyncResult.messages:type_name -> beehive_im.message.MessageItem
 	7,  // 2: beehive_im.message.SyncMessagesRequest.cursors:type_name -> beehive_im.message.ConversationCursor
 	8,  // 3: beehive_im.message.SyncMessagesResponse.conversations:type_name -> beehive_im.message.ConversationSyncResult
-	0,  // 4: beehive_im.message.MessageService.SendMessage:input_type -> beehive_im.message.SendMessageRequest
-	2,  // 5: beehive_im.message.MessageService.AckMessages:input_type -> beehive_im.message.AckMessagesRequest
-	5,  // 6: beehive_im.message.MessageService.ListMessages:input_type -> beehive_im.message.ListMessagesRequest
-	9,  // 7: beehive_im.message.MessageService.SyncMessages:input_type -> beehive_im.message.SyncMessagesRequest
-	1,  // 8: beehive_im.message.MessageService.SendMessage:output_type -> beehive_im.message.SendMessageResponse
-	3,  // 9: beehive_im.message.MessageService.AckMessages:output_type -> beehive_im.message.AckMessagesResponse
-	6,  // 10: beehive_im.message.MessageService.ListMessages:output_type -> beehive_im.message.ListMessagesResponse
-	10, // 11: beehive_im.message.MessageService.SyncMessages:output_type -> beehive_im.message.SyncMessagesResponse
-	8,  // [8:12] is the sub-list for method output_type
-	4,  // [4:8] is the sub-list for method input_type
-	4,  // [4:4] is the sub-list for extension type_name
-	4,  // [4:4] is the sub-list for extension extendee
-	0,  // [0:4] is the sub-list for field type_name
+	4,  // 4: beehive_im.message.ConversationSummary.last_message:type_name -> beehive_im.message.MessageItem
+	11, // 5: beehive_im.message.GetConversationSummariesRequest.cursors:type_name -> beehive_im.message.ConversationSummaryCursor
+	12, // 6: beehive_im.message.GetConversationSummariesResponse.summaries:type_name -> beehive_im.message.ConversationSummary
+	0,  // 7: beehive_im.message.MessageService.SendMessage:input_type -> beehive_im.message.SendMessageRequest
+	2,  // 8: beehive_im.message.MessageService.AckMessages:input_type -> beehive_im.message.AckMessagesRequest
+	5,  // 9: beehive_im.message.MessageService.ListMessages:input_type -> beehive_im.message.ListMessagesRequest
+	9,  // 10: beehive_im.message.MessageService.SyncMessages:input_type -> beehive_im.message.SyncMessagesRequest
+	13, // 11: beehive_im.message.MessageService.GetConversationSummaries:input_type -> beehive_im.message.GetConversationSummariesRequest
+	1,  // 12: beehive_im.message.MessageService.SendMessage:output_type -> beehive_im.message.SendMessageResponse
+	3,  // 13: beehive_im.message.MessageService.AckMessages:output_type -> beehive_im.message.AckMessagesResponse
+	6,  // 14: beehive_im.message.MessageService.ListMessages:output_type -> beehive_im.message.ListMessagesResponse
+	10, // 15: beehive_im.message.MessageService.SyncMessages:output_type -> beehive_im.message.SyncMessagesResponse
+	14, // 16: beehive_im.message.MessageService.GetConversationSummaries:output_type -> beehive_im.message.GetConversationSummariesResponse
+	12, // [12:17] is the sub-list for method output_type
+	7,  // [7:12] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_message_proto_init() }
@@ -1042,7 +1337,7 @@ func file_message_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_message_proto_rawDesc), len(file_message_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

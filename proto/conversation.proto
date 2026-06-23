@@ -25,6 +25,18 @@ service ConversationService {
     // RemoveMembers 将成员标记为已移出会话。
     rpc RemoveMembers(RemoveMembersRequest) returns (RemoveMembersResponse);
 
+    // LeaveConversation lets one member leave a group conversation.
+    // LeaveConversation 允许成员退出群聊。
+    rpc LeaveConversation(LeaveConversationRequest) returns (LeaveConversationResponse);
+
+    // DismissConversation closes a group conversation by owner.
+    // DismissConversation 由群主解散群聊。
+    rpc DismissConversation(DismissConversationRequest) returns (DismissConversationResponse);
+
+    // TransferOwner transfers group ownership to another active member.
+    // TransferOwner 将群主转让给另一位活跃成员。
+    rpc TransferOwner(TransferOwnerRequest) returns (TransferOwnerResponse);
+
     // UpdateMemberRole changes one member role.
     // UpdateMemberRole 修改单个成员角色。
     rpc UpdateMemberRole(UpdateMemberRoleRequest) returns (UpdateMemberRoleResponse);
@@ -32,6 +44,10 @@ service ConversationService {
     // UpdateConversationSettings updates settings owned by one user.
     // UpdateConversationSettings 更新某个用户自己的会话设置。
     rpc UpdateConversationSettings(UpdateConversationSettingsRequest) returns (UpdateConversationSettingsResponse);
+
+    // MarkConversationRead advances one member read or delivered cursor.
+    // MarkConversationRead 推进成员已读或已送达游标。
+    rpc MarkConversationRead(MarkConversationReadRequest) returns (MarkConversationReadResponse);
 
     // CheckSendPermission checks whether a user can send to a conversation.
     // CheckSendPermission 校验用户是否可向会话发送消息。
@@ -69,6 +85,11 @@ message ConversationMember {
     string muted_until = 5;
     string joined_at = 6;
     string updated_at = 7;
+    int64 visible_from_seq = 8;
+    int64 visible_to_seq = 9;
+    int64 last_read_seq = 10;
+    int64 last_delivered_seq = 11;
+    string last_read_at = 12;
 }
 
 message ConversationSettings {
@@ -122,6 +143,14 @@ message ListConversationsRequest {
 
 message ListConversationsResponse {
     repeated Conversation conversations = 1;
+    repeated ConversationListItem items = 2;
+}
+
+message ConversationListItem {
+    Conversation conversation = 1;
+    ConversationMember member = 2;
+    ConversationSettings settings = 3;
+    int32 member_count = 4;
 }
 
 message AddMembersRequest {
@@ -148,6 +177,42 @@ message RemoveMembersResponse {
     string error_code = 2;
     string message = 3;
     int32 removed = 4;
+}
+
+message LeaveConversationRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+}
+
+message LeaveConversationResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message DismissConversationRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+}
+
+message DismissConversationResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+}
+
+message TransferOwnerRequest {
+    string conversation_id = 1;
+    string actor_user_id = 2;
+    string target_user_id = 3;
+}
+
+message TransferOwnerResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    ConversationMember old_owner = 4;
+    ConversationMember new_owner = 5;
 }
 
 message UpdateMemberRoleRequest {
@@ -200,6 +265,8 @@ message CheckReadPermissionResponse {
     bool allowed = 1;
     string error_code = 2;
     string message = 3;
+    int64 visible_from_seq = 4;
+    int64 visible_to_seq = 5;
 }
 
 message ResolveMessageRecipientsRequest {
@@ -224,4 +291,19 @@ message AllocateMessageSeqResponse {
     string error_code = 2;
     string message = 3;
     int64 seq = 4;
+}
+
+message MarkConversationReadRequest {
+    string conversation_id = 1;
+    string user_id = 2;
+    string cursor_type = 3;
+    int64 seq = 4;
+}
+
+message MarkConversationReadResponse {
+    bool accepted = 1;
+    string error_code = 2;
+    string message = 3;
+    int64 last_read_seq = 4;
+    int64 last_delivered_seq = 5;
 }

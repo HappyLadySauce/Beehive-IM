@@ -29,7 +29,7 @@ func NewSyncMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Sync
 }
 
 func (l *SyncMessagesLogic) SyncMessages(req *types.SyncMessagesRequest, r *http.Request) (resp *types.SyncMessagesResponse, err error) {
-	userID, err := debugUserID(r)
+	identity, err := requestIdentity(l.svcCtx, r, false)
 	if err != nil {
 		return nil, err
 	}
@@ -42,12 +42,12 @@ func (l *SyncMessagesLogic) SyncMessages(req *types.SyncMessagesRequest, r *http
 		})
 	}
 	result, err := l.svcCtx.Message.SyncMessages(l.ctx, &messageservice.SyncMessagesRequest{
-		UserId:               userID,
+		UserId:               identity.UserID,
 		Cursors:              cursors,
 		LimitPerConversation: req.LimitPerConversation,
 	})
 	if err != nil {
-		l.Errorf("message sync rpc failed: user_id=%s error=%v", userID, err)
+		l.Errorf("message sync rpc failed: user_id=%s error=%v", identity.UserID, err)
 		return nil, err
 	}
 	conversations := make([]types.ConversationSyncResult, 0, len(result.GetConversations()))

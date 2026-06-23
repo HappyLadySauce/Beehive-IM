@@ -1,6 +1,6 @@
 # Beehive-IM Message 服务与 Web 客户端同步设计文档
 
-> 版本：v1.0
+> 版本：v1.1
 > 适用范围：Message 服务、消息持久化、Outbox、消息同步、Web 客户端重连与补偿协议
 > 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)
 
@@ -41,6 +41,7 @@ Message 服务是 IM 消息事实边界，负责消息写入、会话内序号�
 | 推送可靠性 | WebSocket push 是通知，不是可靠事实 |
 | 补偿同步 | Web 客户端按 `conversation_id + last_contiguous_seq` 拉取缺失消息 |
 | WebSocket 鉴权 | Web 端使用一次性短 TTL `ws_ticket`，不把 JWT 放入 WS query |
+| HTTP 鉴权 | Edge HTTP API 默认使用 `Authorization: Bearer {access_token}`，dev/test 可按配置回退 `X-Debug-*` |
 | 多标签页 | 同一浏览器 profile 只保留一个 WebSocket leader tab |
 
 ---
@@ -111,7 +112,14 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 
 | API | 说明 |
 |-----|------|
+| `POST /v1/auth/register` | 本地账号注册，返回 access token 与 refresh token |
+| `POST /v1/auth/login` | 本地账号登录 |
+| `POST /v1/auth/refresh` | 轮换 refresh token 并签发新 access token |
+| `POST /v1/auth/logout` | 撤销 refresh token |
 | `POST /v1/ws/ticket` | 使用已认证 HTTP 会话换取一次性 WebSocket ticket |
+| `POST /v1/conversations/direct` | 创建或返回同一用户对唯一单聊 |
+| `POST /v1/conversations/group` | 创建群聊，creator 为 owner |
+| `GET /v1/conversations` | 获取会话列表，包含 last message、unread、成员 read state |
 | `GET /v1/conversations/{conversation_id}/messages?after_seq=&before_seq=&direction=&limit=` | 拉取某会话历史或增量消息 |
 | `POST /v1/messages/sync` | 批量按多个会话 cursor 拉取缺失消息 |
 | `POST /v1/messages/ack` | 上报 delivered/read 回执 |
@@ -141,16 +149,17 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 | 签发入口 | `POST /v1/ws/ticket` 已在 Edge 服务实现 |
 | Web 端连接 | `GET /ws?ticket=...` 已在 Edge 服务实现 WebSocket upgrade |
 | ticket 存储 | 当前为 Edge 进程内内存 store，只适合单 Edge 本地开发 |
-| 鉴权来源 | 当前暂用 `X-Debug-User-Id` 开发头，后续替换为 Auth/JWT |
+| 鉴权来源 | Edge 默认校验 Bearer JWT；仅 `Env=dev/test` 且 `DevAuth.Enabled=true` 时允许 `X-Debug-*` 回退 |
 | 绑定字段 | 当前绑定 `user_id`、`device_id`、`session_id`、Origin；user-agent hash 后续补齐 |
 | 在线态 | Edge 建连后调用 Presence，Presence 将 session route 写入 Redis |
 | Gateway 恢复 | Edge 已有基础 rebind/resume 骨架，Gateway stream 断开后可在同一 WebSocket 内切换上游；消息缺口仍依赖后续 Message 同步补偿 |
 | 在线 push | Notification 已消费 `message.created.#`，查询 Conversation + Presence，并发布 `push.edge.{edge_id}`；Edge 从 `edge.push.{edge_id}` 队列写本机 WebSocket |
-| Conversation | 已新增 `proto/conversation.proto` 与 `services/conversation`，维护 `conversations`、`conversation_members`、`conversation_settings`，提供成员权限校验和 `AllocateMessageSeq` |
-| Message | 已新增 `proto/message.proto` 与 `services/message`，实现 `SendMessage`、`AckMessages`、消息持久化、发送幂等和 outbox 写入 |
+| Conversation | 已实现单聊唯一、群聊基础生命周期、成员可见范围、read state、成员权限校验和 `AllocateMessageSeq` |
+| 会话列表 | Edge 组合 Conversation `ListConversations` 与 Message `GetConversationSummaries`，返回 last message 和精确 unread count |
+| Message | 已实现 `SendMessage`、`AckMessages`、`ListMessages`、`SyncMessages`、`GetConversationSummaries`、发送幂等和 outbox 写入 |
 | Gateway 业务帧 | Gateway 已接入 `message.send` 和 `message.ack`，通过 Message zRPC 返回 `message.persisted` / `message.ack` |
 | Outbox | Message 内置 dispatcher，发布 `message.created.{conversation_id}` 到 RabbitMQ exchange `beehive.im.events`，使用 publisher confirm 和有界重试 |
-| 消息同步 | Message 已实现 `ListMessages` / `SyncMessages`，Edge 已暴露 Web HTTP 同步、历史分页和 ack 入口 |
+| 消息同步 | Message `ListMessages` / `SyncMessages` 已按 Conversation 可见 seq 范围过滤，Edge 已暴露 Web HTTP 同步、历史分页和 ack 入口 |
 
 ### 3.2 内部 gRPC API
 
@@ -160,6 +169,7 @@ Web 客户端通过 Edge/API Gateway 暴露的 HTTP JSON API 或 WebSocket frame
 | `AckMessages` | Gateway | 已实现：写 delivered/read 回执 |
 | `SyncMessages` | Edge/API Gateway | 已实现：按 cursor 批量同步缺失消息 |
 | `ListMessages` | Edge/API Gateway | 已实现：拉取单会话消息列表 |
+| `GetConversationSummaries` | Edge/API Gateway | 已实现：按可见范围返回 last message 和精确 unread count |
 
 ### 3.3 SendMessage 请求
 
@@ -381,7 +391,7 @@ Web 客户端在消息写入 IndexedDB 后发送 delivered ack；用户实际打
 }
 ```
 
-当前实现支持按明确 `seqs` 批量上报 read ack：
+当前实现支持按明确 `seqs` 批量上报 delivered/read ack；read ack 成功后会推进 Conversation `last_read_seq`：
 
 ```json
 {
@@ -577,4 +587,6 @@ Web 客户端建议上报：
 - [ ] Web 多标签页只保留一个 WebSocket leader。
 - [x] WebSocket 鉴权使用一次性 `ws_ticket`，JWT/access token 不进入 WS query。
 - [x] delivered/read ack 支持按 seqs 批量、幂等和权限校验。
+- [x] `AckMessages(read)` 已推进 Conversation `last_read_seq`，会话列表返回精确 unread count。
+- [x] `ListMessages` / `SyncMessages` 已按成员 `visible_from_seq` / `visible_to_seq` 过滤。
 - [ ] 指标覆盖发送延迟、同步缺口、outbox pending、重连次数和本地 pending 数。

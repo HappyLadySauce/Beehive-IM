@@ -9,6 +9,13 @@ RedisStore:
   Addr: 127.0.0.1:6379
   DB: 0
   PoolSize: 20
+JWT:
+  Secret: beehive-im-dev-secret-change-me
+  Issuer: beehive-im
+  AccessTTLSeconds: 900
+  PreferEnvWhenEmpty: true
+  AllowDevDefault: true
+RefreshTokenTTLSeconds: 2592000
 Etcd:
   Hosts:
   - 127.0.0.1:2379

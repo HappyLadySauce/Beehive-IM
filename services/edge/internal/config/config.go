@@ -4,6 +4,7 @@
 package config
 
 import (
+	"github.com/HappyLadySauce/Beehive-IM/pkg/authjwt"
 	pkgetcd "github.com/HappyLadySauce/Beehive-IM/pkg/etcd"
 	pkgrabbitmq "github.com/HappyLadySauce/Beehive-IM/pkg/rabbitmq"
 	"github.com/zeromicro/go-zero/rest"
@@ -20,8 +21,13 @@ type Config struct {
 	WebSocket          WebSocketConf
 	Gateway            zrpc.RpcClientConf
 	GatewayRecovery    GatewayRecoveryConf
+	Auth               zrpc.RpcClientConf
 	Presence           zrpc.RpcClientConf
 	Message            zrpc.RpcClientConf
+	Conversation       zrpc.RpcClientConf
+	User               zrpc.RpcClientConf
+	JWT                authjwt.Config
+	DevAuth            DevAuthConf
 	Registry           pkgetcd.Config
 	RabbitMQ           pkgrabbitmq.Config
 }
@@ -40,4 +46,8 @@ type GatewayRecoveryConf struct {
 	WindowMs    int64   `json:",default=5000"`
 	BackoffMs   []int64 `json:",optional"`
 	IsolationMs int64   `json:",default=10000"`
+}
+
+type DevAuthConf struct {
+	Enabled bool `json:",default=false"`
 }

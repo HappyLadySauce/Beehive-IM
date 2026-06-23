@@ -1,6 +1,6 @@
 # Beehive-IM 网关模块设计文档
 
-> 版本：v1.2
+> 版本：v1.3
 > 适用范围：Edge 公网 WebSocket 代理入口、Gateway 内网上游会话节点、连接恢复、在线态与下行推送
 > 关联文件：[`docs/auth/DESIGN.md`](../auth/DESIGN.md)、[`docs/conversation/DESIGN.md`](../conversation/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/presence/DESIGN.md`](../presence/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`api/edge.api`](../../api/edge.api)、[`proto/gateway.proto`](../../proto/gateway.proto)、[`proto/message.proto`](../../proto/message.proto)、[`proto/conversation.proto`](../../proto/conversation.proto)、[`proto/auth.proto`](../../proto/auth.proto)
 
@@ -50,9 +50,10 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 
 | 能力 | 当前状态 |
 |------|----------|
-| Edge HTTP API | 已通过 `api/edge.api` 生成 `services/edge`，提供 `GET /healthz`、`POST /v1/ws/ticket`、`GET /ws`、`GET /v1/conversations/:conversation_id/messages`、`POST /v1/messages/sync`、`POST /v1/messages/ack` |
+| Edge HTTP API | 已通过 `api/edge.api` 生成 `services/edge`，提供 health、auth、ws ticket、conversation、message sync/list/ack 等 Web API |
 | WebSocket ticket | Edge 本地内存存储，TTL 默认 30s，单次消费，绑定 `user_id`、`device_id`、`session_id`、Origin |
-| 开发鉴权 | `POST /v1/ws/ticket` 暂用 `X-Debug-User-Id` 生成 ticket，后续替换为 Auth/JWT 校验 |
+| Auth/JWT | Edge 已代理 `/v1/auth/register`、`/v1/auth/login`、`/v1/auth/refresh`、`/v1/auth/logout`，默认使用 Bearer JWT 保护 ws ticket、message 和 conversation API |
+| 开发鉴权 | 仅 `Env=dev/test` 且 `DevAuth.Enabled=true` 时允许 `X-Debug-*` 回退，生产环境必须关闭 |
 | Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
 | Edge -> Gateway | 已采用 gRPC bidirectional stream 转发 JSON WebSocket 信封 |
 | Gateway 会话 | 当前为内存 session manager，支持 attach、resume、close、容量限制和 ping/pong/session.resumed |
@@ -63,7 +64,7 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 | Gateway 选择 | Gateway 注册到 etcd，Edge watch `/beehive-im/{env}/services/gateway/` 并回退静态 Gateway endpoint |
 | RabbitMQ push | Edge 已消费 RabbitMQ `edge.push.{edge_id}` 队列，绑定 routing key `push.edge.{edge_id}`，按 `conn_id` 或 `session_id` 写入本机 WebSocket |
 | User PostgreSQL | User 服务已接 PostgreSQL，`GetUser` 从 `users` / `user_profiles` 读取 |
-| Message/Conversation | Gateway 已接入 Message zRPC；`message.send` 持久化消息并返回 `message.persisted`，`message.ack` 写入回执并返回 `message.ack` |
+| Message/Conversation | Gateway 已接入 Message zRPC；Edge 已暴露单聊唯一、群聊生命周期、会话列表、消息同步和 ack API |
 | 未知业务帧 | 未识别帧仍按 echo 验证链路处理 |
 | Notification | 已新增 `services/notification`，消费 `message.created.#`，查询 Conversation + Presence，并发布 `message.new` 在线 push |
 
@@ -234,7 +235,12 @@ sequenceDiagram
 Edge 可以承载 Auth HTTP 入口，也可以与独立 API Gateway 并存。生产建议统一公网 API 域名：
 
 ```text
-https://api.example.com/v1/auth/*
+https://api.example.com/v1/auth/register
+https://api.example.com/v1/auth/login
+https://api.example.com/v1/auth/refresh
+https://api.example.com/v1/auth/logout
+https://api.example.com/v1/conversations/*
+https://api.example.com/v1/messages/*
 wss://im.example.com/ws
 ```
 
@@ -254,23 +260,25 @@ Sec-WebSocket-Protocol: beehive.im.v1
 
 ### 4.3 握手认证流程
 
+WebSocket Upgrade 阶段只校验和消费 `ws_ticket`。Bearer JWT 校验发生在前置 `POST /v1/ws/ticket` HTTP 请求中；浏览器不需要也不能在原生 WebSocket Upgrade 中设置自定义 `Authorization` 头。
+
 ```mermaid
 flowchart TD
-    A[收到 WS Upgrade 请求] --> B{TLS and Origin valid?}
+    A[收到 POST /v1/ws/ticket] --> B{Bearer JWT valid?}
     B -->|否| R403[403 Forbidden]
-    B -->|是| C{解析 Authorization}
-    C -->|缺失| R401[401 Unauthorized]
-    C -->|存在| D{ticket valid and unused?}
-    D -->|失败/过期| R401
-    D -->|成功| E{jti blacklist?}
-    E -->|命中| R401
-    E -->|未命中| F{device_id valid?}
-    F -->|否| R400[400 Bad Request]
-    F -->|是| G{edge_conn_count < max_conn?}
-    G -->|否| R503[503 Service Unavailable]
-    G -->|是| H[选择 Gateway 并 attach]
-    H --> I[调用 Presence 注册在线态]
-    I --> J[101 Switching Protocols]
+    B -->|是| C{device_id valid?}
+    C -->|否| R400[400 Bad Request]
+    C -->|是| D[签发短 TTL 一次性 ws_ticket]
+    D --> E[收到 GET /ws?ticket=...]
+    E --> F{TLS and Origin valid?}
+    F -->|否| R403
+    F -->|是| G{ticket valid and unused?}
+    G -->|失败/过期| R401[401 Unauthorized]
+    G -->|成功| H{edge_conn_count < max_conn?}
+    H -->|否| R503[503 Service Unavailable]
+    H -->|是| I[选择 Gateway 并 attach]
+    I --> J[调用 Presence 注册在线态]
+    J --> K[101 Switching Protocols]
 ```
 
 ### 4.4 Gateway 选择
@@ -890,7 +898,7 @@ flowchart LR
 
 | 阶段 | 内容 |
 |------|------|
-| v1（当前） | Edge 代理 WebSocket；Gateway 内网上游；Presence 在线态；Message 持久化/同步；Notification 在线 push |
+| v1（当前） | Edge 代理 WebSocket；本地 Auth/JWT；单聊/群聊 Web API；Gateway 内网上游；Presence 在线态；Message 持久化/同步；Notification 在线 push |
 | v1.1 | JWT 黑名单；Presence 在线态清理任务；Notification DLQ/指标；基础观测面板 |
 | v2 | Gateway 选择引入 rendezvous hash + 权重；Web Push / 移动 provider 扩展；mTLS 自动证书轮换 |
 | v3 | RS256 + JWKS；跨 region Edge；Gateway 多活；事件总线升级评估 |

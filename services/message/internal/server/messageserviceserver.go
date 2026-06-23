@@ -46,3 +46,9 @@ func (s *MessageServiceServer) SyncMessages(ctx context.Context, in *pb.SyncMess
 	l := logic.NewSyncMessagesLogic(ctx, s.svcCtx)
 	return l.SyncMessages(in)
 }
+
+// GetConversationSummaries returns last message and unread count for conversations.
+func (s *MessageServiceServer) GetConversationSummaries(ctx context.Context, in *pb.GetConversationSummariesRequest) (*pb.GetConversationSummariesResponse, error) {
+	l := logic.NewGetConversationSummariesLogic(ctx, s.svcCtx)
+	return l.GetConversationSummaries(in)
+}

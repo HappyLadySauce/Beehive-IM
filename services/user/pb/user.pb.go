@@ -149,6 +149,102 @@ func (x *GetUserResponse) GetUpdatedAt() string {
 	return ""
 }
 
+type BatchGetUsersRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ids           []string               `protobuf:"bytes,1,rep,name=ids,proto3" json:"ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchGetUsersRequest) Reset() {
+	*x = BatchGetUsersRequest{}
+	mi := &file_user_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchGetUsersRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchGetUsersRequest) ProtoMessage() {}
+
+func (x *BatchGetUsersRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_user_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchGetUsersRequest.ProtoReflect.Descriptor instead.
+func (*BatchGetUsersRequest) Descriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *BatchGetUsersRequest) GetIds() []string {
+	if x != nil {
+		return x.Ids
+	}
+	return nil
+}
+
+type BatchGetUsersResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Users         []*GetUserResponse     `protobuf:"bytes,1,rep,name=users,proto3" json:"users,omitempty"`
+	MissingIds    []string               `protobuf:"bytes,2,rep,name=missing_ids,json=missingIds,proto3" json:"missing_ids,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchGetUsersResponse) Reset() {
+	*x = BatchGetUsersResponse{}
+	mi := &file_user_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchGetUsersResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchGetUsersResponse) ProtoMessage() {}
+
+func (x *BatchGetUsersResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_user_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchGetUsersResponse.ProtoReflect.Descriptor instead.
+func (*BatchGetUsersResponse) Descriptor() ([]byte, []int) {
+	return file_user_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *BatchGetUsersResponse) GetUsers() []*GetUserResponse {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+func (x *BatchGetUsersResponse) GetMissingIds() []string {
+	if x != nil {
+		return x.MissingIds
+	}
+	return nil
+}
+
 var File_user_proto protoreflect.FileDescriptor
 
 const file_user_proto_rawDesc = "" +
@@ -165,9 +261,16 @@ const file_user_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x05 \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\x06 \x01(\tR\tupdatedAt2[\n" +
+	"updated_at\x18\x06 \x01(\tR\tupdatedAt\"(\n" +
+	"\x14BatchGetUsersRequest\x12\x10\n" +
+	"\x03ids\x18\x01 \x03(\tR\x03ids\"p\n" +
+	"\x15BatchGetUsersResponse\x126\n" +
+	"\x05users\x18\x01 \x03(\v2 .beehive_im.user.GetUserResponseR\x05users\x12\x1f\n" +
+	"\vmissing_ids\x18\x02 \x03(\tR\n" +
+	"missingIds2\xbb\x01\n" +
 	"\vUserService\x12L\n" +
-	"\aGetUser\x12\x1f.beehive_im.user.GetUserRequest\x1a .beehive_im.user.GetUserResponseB\x06Z\x04./pbb\x06proto3"
+	"\aGetUser\x12\x1f.beehive_im.user.GetUserRequest\x1a .beehive_im.user.GetUserResponse\x12^\n" +
+	"\rBatchGetUsers\x12%.beehive_im.user.BatchGetUsersRequest\x1a&.beehive_im.user.BatchGetUsersResponseB\x06Z\x04./pbb\x06proto3"
 
 var (
 	file_user_proto_rawDescOnce sync.Once
@@ -181,19 +284,24 @@ func file_user_proto_rawDescGZIP() []byte {
 	return file_user_proto_rawDescData
 }
 
-var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_user_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_user_proto_goTypes = []any{
-	(*GetUserRequest)(nil),  // 0: beehive_im.user.GetUserRequest
-	(*GetUserResponse)(nil), // 1: beehive_im.user.GetUserResponse
+	(*GetUserRequest)(nil),        // 0: beehive_im.user.GetUserRequest
+	(*GetUserResponse)(nil),       // 1: beehive_im.user.GetUserResponse
+	(*BatchGetUsersRequest)(nil),  // 2: beehive_im.user.BatchGetUsersRequest
+	(*BatchGetUsersResponse)(nil), // 3: beehive_im.user.BatchGetUsersResponse
 }
 var file_user_proto_depIdxs = []int32{
-	0, // 0: beehive_im.user.UserService.GetUser:input_type -> beehive_im.user.GetUserRequest
-	1, // 1: beehive_im.user.UserService.GetUser:output_type -> beehive_im.user.GetUserResponse
-	1, // [1:2] is the sub-list for method output_type
-	0, // [0:1] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: beehive_im.user.BatchGetUsersResponse.users:type_name -> beehive_im.user.GetUserResponse
+	0, // 1: beehive_im.user.UserService.GetUser:input_type -> beehive_im.user.GetUserRequest
+	2, // 2: beehive_im.user.UserService.BatchGetUsers:input_type -> beehive_im.user.BatchGetUsersRequest
+	1, // 3: beehive_im.user.UserService.GetUser:output_type -> beehive_im.user.GetUserResponse
+	3, // 4: beehive_im.user.UserService.BatchGetUsers:output_type -> beehive_im.user.BatchGetUsersResponse
+	3, // [3:5] is the sub-list for method output_type
+	1, // [1:3] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_user_proto_init() }
@@ -207,7 +315,7 @@ func file_user_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_user_proto_rawDesc), len(file_user_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -155,6 +155,37 @@ func syncRejected(code, message string) *pb.SyncMessagesResponse {
 	}
 }
 
+func summariesRejected(code, message string) *pb.GetConversationSummariesResponse {
+	if code == "" {
+		code = repository.CodeInvalidArgument
+	}
+	return &pb.GetConversationSummariesResponse{
+		Accepted:  false,
+		ErrorCode: code,
+		Message:   message,
+	}
+}
+
+func summaryPB(summary repository.ConversationSummary) *pb.ConversationSummary {
+	out := &pb.ConversationSummary{
+		ConversationId: summary.ConversationID,
+		LatestSeq:      summary.LatestSeq,
+		UnreadCount:    summary.UnreadCount,
+	}
+	if summary.LastMessage != nil {
+		out.LastMessage = messageItemPB(*summary.LastMessage)
+	}
+	return out
+}
+
+func summariesPB(summaries []repository.ConversationSummary) []*pb.ConversationSummary {
+	out := make([]*pb.ConversationSummary, 0, len(summaries))
+	for _, summary := range summaries {
+		out = append(out, summaryPB(summary))
+	}
+	return out
+}
+
 func isBusinessError(err error) bool {
 	return errors.Is(err, repository.ErrInvalidArgument)
 }

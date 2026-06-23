@@ -14,17 +14,21 @@ import (
 )
 
 type (
-	AckMessagesRequest     = pb.AckMessagesRequest
-	AckMessagesResponse    = pb.AckMessagesResponse
-	ConversationCursor     = pb.ConversationCursor
-	ConversationSyncResult = pb.ConversationSyncResult
-	ListMessagesRequest    = pb.ListMessagesRequest
-	ListMessagesResponse   = pb.ListMessagesResponse
-	MessageItem            = pb.MessageItem
-	SendMessageRequest     = pb.SendMessageRequest
-	SendMessageResponse    = pb.SendMessageResponse
-	SyncMessagesRequest    = pb.SyncMessagesRequest
-	SyncMessagesResponse   = pb.SyncMessagesResponse
+	AckMessagesRequest               = pb.AckMessagesRequest
+	AckMessagesResponse              = pb.AckMessagesResponse
+	ConversationCursor               = pb.ConversationCursor
+	ConversationSummary              = pb.ConversationSummary
+	ConversationSummaryCursor        = pb.ConversationSummaryCursor
+	ConversationSyncResult           = pb.ConversationSyncResult
+	GetConversationSummariesRequest  = pb.GetConversationSummariesRequest
+	GetConversationSummariesResponse = pb.GetConversationSummariesResponse
+	ListMessagesRequest              = pb.ListMessagesRequest
+	ListMessagesResponse             = pb.ListMessagesResponse
+	MessageItem                      = pb.MessageItem
+	SendMessageRequest               = pb.SendMessageRequest
+	SendMessageResponse              = pb.SendMessageResponse
+	SyncMessagesRequest              = pb.SyncMessagesRequest
+	SyncMessagesResponse             = pb.SyncMessagesResponse
 
 	MessageService interface {
 		// SendMessage validates permissions and persists one client message.
@@ -35,6 +39,8 @@ type (
 		ListMessages(ctx context.Context, in *ListMessagesRequest, opts ...grpc.CallOption) (*ListMessagesResponse, error)
 		// SyncMessages returns missing messages for multiple conversations.
 		SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error)
+		// GetConversationSummaries returns last message and unread count for conversations.
+		GetConversationSummaries(ctx context.Context, in *GetConversationSummariesRequest, opts ...grpc.CallOption) (*GetConversationSummariesResponse, error)
 	}
 
 	defaultMessageService struct {
@@ -70,4 +76,10 @@ func (m *defaultMessageService) ListMessages(ctx context.Context, in *ListMessag
 func (m *defaultMessageService) SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error) {
 	client := pb.NewMessageServiceClient(m.cli.Conn())
 	return client.SyncMessages(ctx, in, opts...)
+}
+
+// GetConversationSummaries returns last message and unread count for conversations.
+func (m *defaultMessageService) GetConversationSummaries(ctx context.Context, in *GetConversationSummariesRequest, opts ...grpc.CallOption) (*GetConversationSummariesResponse, error) {
+	client := pb.NewMessageServiceClient(m.cli.Conn())
+	return client.GetConversationSummaries(ctx, in, opts...)
 }

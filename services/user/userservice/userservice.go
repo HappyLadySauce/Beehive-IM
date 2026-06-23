@@ -14,11 +14,14 @@ import (
 )
 
 type (
-	GetUserRequest  = pb.GetUserRequest
-	GetUserResponse = pb.GetUserResponse
+	BatchGetUsersRequest  = pb.BatchGetUsersRequest
+	BatchGetUsersResponse = pb.BatchGetUsersResponse
+	GetUserRequest        = pb.GetUserRequest
+	GetUserResponse       = pb.GetUserResponse
 
 	UserService interface {
 		GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error)
+		BatchGetUsers(ctx context.Context, in *BatchGetUsersRequest, opts ...grpc.CallOption) (*BatchGetUsersResponse, error)
 	}
 
 	defaultUserService struct {
@@ -35,4 +38,9 @@ func NewUserService(cli zrpc.Client) UserService {
 func (m *defaultUserService) GetUser(ctx context.Context, in *GetUserRequest, opts ...grpc.CallOption) (*GetUserResponse, error) {
 	client := pb.NewUserServiceClient(m.cli.Conn())
 	return client.GetUser(ctx, in, opts...)
+}
+
+func (m *defaultUserService) BatchGetUsers(ctx context.Context, in *BatchGetUsersRequest, opts ...grpc.CallOption) (*BatchGetUsersResponse, error) {
+	client := pb.NewUserServiceClient(m.cli.Conn())
+	return client.BatchGetUsers(ctx, in, opts...)
 }

@@ -1,6 +1,6 @@
 # Beehive-IM Conversation 服务设计文档
 
-> 版本：v1.0
+> 版本：v1.1
 > 适用范围：会话、成员、权限、会话设置、通知偏好、消息序号分配协作
 > 关联文件：[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/notification/DESIGN.md`](../notification/DESIGN.md)、[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)
 
@@ -26,13 +26,17 @@ Conversation 服务是 IM 系统的会话事实边界，负责维护会话、成
 | 能力 | 当前状态 |
 |------|----------|
 | Proto / 服务 | 已新增 `proto/conversation.proto` 与 `services/conversation` zRPC |
-| PostgreSQL | 已新增 `sql/migrations/conversations/003_conversation.sql` |
-| 基础 API | 已实现创建、查询、列表、成员新增/移除、角色更新、用户设置更新 |
+| PostgreSQL | 已新增 `sql/migrations/conversations/003_conversation.sql` 与产品迁移 `006_conversation_product.sql` |
+| 基础 API | 已实现创建、查询、列表、成员新增/移除、角色更新、用户设置更新、退出、解散、转让群主、已读游标推进 |
+| 单聊 | 已通过 `direct_conversations` 唯一映射保证同一用户对只返回一个 direct conversation |
+| 群聊 | 已实现 creator owner、至少 3 人建群、owner/admin 管理成员、owner 需转让或解散后才能退出 |
+| 用户校验 | 创建会话和加成员前调用 User `BatchGetUsers` 校验用户存在 |
 | 权限 | 已实现 active 成员、owner/admin 管理成员、用户只能改自己的会话设置 |
 | 发送权限 | 已实现 `CheckSendPermission`，校验会话 active、成员 active、未超过 `muted_until` |
-| 读取权限 | 已实现 `CheckReadPermission`，校验会话 active、成员 active |
+| 读取权限 | 已实现 `CheckReadPermission`，返回 `visible_from_seq` / `visible_to_seq`，支持移除/退出后的历史可见范围 |
 | 通知收件人 | 已实现 `ResolveMessageRecipients`，返回 active members，供 Notification 查询在线路由 |
 | 序号 | 已实现 `AllocateMessageSeq`，事务行锁递增 `conversations.current_seq` |
+| 会话列表 | `ListConversations` 返回 conversation、member read state、settings、member_count，Edge 结合 Message summaries 生成 unread/last message |
 | 事件 | 本阶段尚未发布 conversation 领域事件 |
 
 ### 1.3 非职责
@@ -82,8 +86,12 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 | `ListConversations` | Gateway / API | 查询用户会话列表 |
 | `AddMembers` | Gateway / API | 添加成员 |
 | `RemoveMembers` | Gateway / API | 移除成员 |
+| `LeaveConversation` | Gateway / API | 成员退出群聊；owner 必须先转让或解散 |
+| `DismissConversation` | Gateway / API | owner 解散群聊 |
+| `TransferOwner` | Gateway / API | owner 转让群主给 active member |
 | `UpdateMemberRole` | Gateway / API | 变更成员角色 |
 | `UpdateConversationSettings` | Gateway / API | 修改会话设置 |
+| `MarkConversationRead` | Message / API | 推进 delivered/read 游标 |
 | `CheckSendPermission` | Message | 校验发送权限 |
 | `CheckReadPermission` | Message | 校验历史消息和同步读取权限 |
 | `AllocateMessageSeq` | Message | 分配会话内单调递增消息序号 |
@@ -108,6 +116,7 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 |----|------|
 | `conversations` | 会话主表，保存类型、状态、当前消息序号 |
 | `conversation_members` | 成员关系、角色、状态、禁言截止时间 |
+| `direct_conversations` | direct 会话唯一映射，按两个 user_id 排序唯一 |
 | `conversation_settings` | 用户级会话设置 |
 | `conversation_events` | 计划中：可选审计事件表 |
 
@@ -133,6 +142,11 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 | `muted_until` | 禁言截止时间，NULL 表示未禁言 |
 | `joined_at` | 加入时间 |
 | `updated_at` | 更新时间 |
+| `visible_from_seq` | 成员可见消息起点；新加入成员默认为当前 `current_seq + 1` |
+| `visible_to_seq` | 成员可见消息终点；0 表示仍可见后续消息，退出/移除时冻结为当前 `current_seq` |
+| `last_read_seq` | 用户已读会话序号 |
+| `last_delivered_seq` | 用户已送达会话序号 |
+| `last_read_at` | 最近已读时间 |
 
 ### 4.2 序号分配
 
@@ -200,5 +214,6 @@ v1 推荐使用 gRPC。所有写接口必须带幂等 key 或业务唯一约束�
 - [x] Message 发送前通过 Conversation 校验成员权限。
 - [x] 会话序号具备单调递增保证，并有 Message 唯一索引兜底。
 - [x] Notification 不自行维护成员关系，统一调用 Conversation；免打扰规则后续扩展。
+- [x] 单聊唯一、群聊基础生命周期、成员可见范围和 read state 已落库并接入服务 API。
 - [ ] 成员变更发布 `conversation.updated.#` 或等价领域事件。
 - [x] 会话基础读写接口具备权限校验和明确错误码。

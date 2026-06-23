@@ -16,9 +16,87 @@ type AckMessagesResponse struct {
 	Updated   int32  `json:"updated"`
 }
 
+type AddConversationMembersRequest struct {
+	ConversationId string        `path:"conversation_id"`
+	Members        []MemberInput `json:"members"`
+}
+
+type AuthTokenResponse struct {
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	ExpiresIn    int64        `json:"expires_in"`
+	TokenType    string       `json:"token_type"`
+	User         AuthUserInfo `json:"user"`
+}
+
+type AuthUserInfo struct {
+	Id       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email,optional"`
+	Avatar   string `json:"avatar,optional"`
+}
+
+type Conversation struct {
+	ConversationId string `json:"conversation_id"`
+	Type           string `json:"type"`
+	Status         string `json:"status"`
+	Title          string `json:"title"`
+	OwnerUserId    string `json:"owner_user_id"`
+	CurrentSeq     int64  `json:"current_seq"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+type ConversationActionRequest struct {
+	ConversationId string `path:"conversation_id"`
+}
+
 type ConversationCursor struct {
 	ConversationId string `json:"conversation_id"`
 	LastSeq        int64  `json:"last_seq"`
+}
+
+type ConversationListItem struct {
+	Conversation Conversation         `json:"conversation"`
+	Member       ConversationMember   `json:"member"`
+	Settings     ConversationSettings `json:"settings"`
+	MemberCount  int32                `json:"member_count"`
+	LastMessage  MessageItem          `json:"last_message,optional"`
+	LatestSeq    int64                `json:"latest_seq"`
+	UnreadCount  int64                `json:"unread_count"`
+}
+
+type ConversationMember struct {
+	ConversationId   string `json:"conversation_id"`
+	UserId           string `json:"user_id"`
+	Role             string `json:"role"`
+	Status           string `json:"status"`
+	MutedUntil       string `json:"muted_until,optional"`
+	JoinedAt         string `json:"joined_at"`
+	UpdatedAt        string `json:"updated_at"`
+	VisibleFromSeq   int64  `json:"visible_from_seq"`
+	VisibleToSeq     int64  `json:"visible_to_seq"`
+	LastReadSeq      int64  `json:"last_read_seq"`
+	LastDeliveredSeq int64  `json:"last_delivered_seq"`
+	LastReadAt       string `json:"last_read_at,optional"`
+}
+
+type ConversationResponse struct {
+	Accepted     bool                 `json:"accepted"`
+	ErrorCode    string               `json:"error_code,optional"`
+	Message      string               `json:"message"`
+	Conversation Conversation         `json:"conversation"`
+	Members      []ConversationMember `json:"members,optional"`
+	Settings     ConversationSettings `json:"settings,optional"`
+}
+
+type ConversationSettings struct {
+	ConversationId string `json:"conversation_id"`
+	UserId         string `json:"user_id"`
+	Pinned         bool   `json:"pinned"`
+	MutedUntil     string `json:"muted_until,optional"`
+	Remark         string `json:"remark,optional"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type ConversationSyncResult struct {
@@ -27,8 +105,37 @@ type ConversationSyncResult struct {
 	LatestSeq      int64         `json:"latest_seq"`
 }
 
+type CreateDirectConversationRequest struct {
+	PeerUserId string `json:"peer_user_id"`
+	Title      string `json:"title,optional"`
+}
+
+type CreateGroupConversationRequest struct {
+	Title   string        `json:"title"`
+	Members []MemberInput `json:"members"`
+}
+
+type EmptyResponse struct {
+	Success   bool   `json:"success"`
+	ErrorCode string `json:"error_code,optional"`
+	Message   string `json:"message,optional"`
+}
+
+type GetConversationRequest struct {
+	ConversationId string `path:"conversation_id"`
+}
+
 type HealthResponse struct {
 	Status string `json:"status"`
+}
+
+type ListConversationsRequest struct {
+	Limit  int32 `form:"limit,optional"`
+	Offset int32 `form:"offset,optional"`
+}
+
+type ListConversationsResponse struct {
+	Items []ConversationListItem `json:"items"`
 }
 
 type ListMessagesRequest struct {
@@ -47,6 +154,20 @@ type ListMessagesResponse struct {
 	LatestSeq int64         `json:"latest_seq"`
 }
 
+type LoginRequest struct {
+	Account  string `json:"account"`
+	Password string `json:"password"`
+}
+
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type MemberInput struct {
+	UserId string `json:"user_id"`
+	Role   string `json:"role,optional"`
+}
+
 type MessageItem struct {
 	MessageId      string `json:"message_id"`
 	ConversationId string `json:"conversation_id"`
@@ -58,6 +179,22 @@ type MessageItem struct {
 	ContentType    string `json:"content_type"`
 	ContentJson    string `json:"content_json"`
 	CreatedAt      string `json:"created_at"`
+}
+
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Email    string `json:"email,optional"`
+	Phone    string `json:"phone,optional"`
+	Password string `json:"password"`
+}
+
+type RemoveConversationMemberRequest struct {
+	ConversationId string `path:"conversation_id"`
+	UserId         string `path:"user_id"`
 }
 
 type SyncMessagesRequest struct {
@@ -82,4 +219,22 @@ type TicketResponse struct {
 	ExpiresIn int64  `json:"expires_in"`
 	SessionId string `json:"session_id"`
 	DeviceId  string `json:"device_id"`
+}
+
+type TransferOwnerRequest struct {
+	ConversationId string `path:"conversation_id"`
+	TargetUserId   string `json:"target_user_id"`
+}
+
+type UpdateConversationSettingsRequest struct {
+	ConversationId string `path:"conversation_id"`
+	Pinned         bool   `json:"pinned"`
+	MutedUntil     string `json:"muted_until,optional"`
+	Remark         string `json:"remark,optional"`
+}
+
+type UpdateMemberRoleRequest struct {
+	ConversationId string `path:"conversation_id"`
+	UserId         string `path:"user_id"`
+	Role           string `json:"role"`
 }

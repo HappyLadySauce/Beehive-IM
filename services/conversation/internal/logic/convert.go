@@ -24,13 +24,18 @@ func conversationPB(c repository.Conversation) *pb.Conversation {
 
 func memberPB(m repository.Member) *pb.ConversationMember {
 	return &pb.ConversationMember{
-		ConversationId: m.ConversationID,
-		UserId:         m.UserID,
-		Role:           m.Role,
-		Status:         m.Status,
-		MutedUntil:     formatOptionalTime(m.MutedUntil),
-		JoinedAt:       formatTime(m.JoinedAt),
-		UpdatedAt:      formatTime(m.UpdatedAt),
+		ConversationId:   m.ConversationID,
+		UserId:           m.UserID,
+		Role:             m.Role,
+		Status:           m.Status,
+		MutedUntil:       formatOptionalTime(m.MutedUntil),
+		JoinedAt:         formatTime(m.JoinedAt),
+		UpdatedAt:        formatTime(m.UpdatedAt),
+		VisibleFromSeq:   m.VisibleFromSeq,
+		VisibleToSeq:     m.VisibleToSeq,
+		LastReadSeq:      m.LastReadSeq,
+		LastDeliveredSeq: m.LastDeliveredSeq,
+		LastReadAt:       formatOptionalTime(m.LastReadAt),
 	}
 }
 
@@ -71,6 +76,27 @@ func conversationsPB(conversations []repository.Conversation) []*pb.Conversation
 	out := make([]*pb.Conversation, 0, len(conversations))
 	for _, conversation := range conversations {
 		out = append(out, conversationPB(conversation))
+	}
+	return out
+}
+
+func listItemsPB(items []repository.ListItem) []*pb.ConversationListItem {
+	out := make([]*pb.ConversationListItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, &pb.ConversationListItem{
+			Conversation: conversationPB(item.Conversation),
+			Member:       memberPB(item.Member),
+			Settings:     settingsPB(item.Settings),
+			MemberCount:  item.MemberCount,
+		})
+	}
+	return out
+}
+
+func listItemConversationsPB(items []repository.ListItem) []*pb.Conversation {
+	out := make([]*pb.Conversation, 0, len(items))
+	for _, item := range items {
+		out = append(out, conversationPB(item.Conversation))
 	}
 	return out
 }

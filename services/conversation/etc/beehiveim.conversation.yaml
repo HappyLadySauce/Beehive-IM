@@ -5,6 +5,11 @@ Postgres:
   DSN: ""
   MaxConns: 20
   MinConns: 2
+User:
+  Endpoints:
+  - 127.0.0.1:9001
+  NonBlock: true
+  Timeout: 2000
 Etcd:
   Hosts:
   - 127.0.0.1:2379

@@ -9,4 +9,5 @@ type Config struct {
 	zrpc.RpcServerConf
 	Env      string `json:",default=dev"`
 	Postgres postgres.Config
+	User     zrpc.RpcClientConf
 }

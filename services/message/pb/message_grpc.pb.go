@@ -19,10 +19,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	MessageService_SendMessage_FullMethodName  = "/beehive_im.message.MessageService/SendMessage"
-	MessageService_AckMessages_FullMethodName  = "/beehive_im.message.MessageService/AckMessages"
-	MessageService_ListMessages_FullMethodName = "/beehive_im.message.MessageService/ListMessages"
-	MessageService_SyncMessages_FullMethodName = "/beehive_im.message.MessageService/SyncMessages"
+	MessageService_SendMessage_FullMethodName              = "/beehive_im.message.MessageService/SendMessage"
+	MessageService_AckMessages_FullMethodName              = "/beehive_im.message.MessageService/AckMessages"
+	MessageService_ListMessages_FullMethodName             = "/beehive_im.message.MessageService/ListMessages"
+	MessageService_SyncMessages_FullMethodName             = "/beehive_im.message.MessageService/SyncMessages"
+	MessageService_GetConversationSummaries_FullMethodName = "/beehive_im.message.MessageService/GetConversationSummaries"
 )
 
 // MessageServiceClient is the client API for MessageService service.
@@ -41,6 +42,9 @@ type MessageServiceClient interface {
 	// SyncMessages returns missing messages for multiple conversations.
 	// SyncMessages 返回多个会话的缺口消息。
 	SyncMessages(ctx context.Context, in *SyncMessagesRequest, opts ...grpc.CallOption) (*SyncMessagesResponse, error)
+	// GetConversationSummaries returns last message and unread count for conversations.
+	// GetConversationSummaries 返回会话最后消息和未读数。
+	GetConversationSummaries(ctx context.Context, in *GetConversationSummariesRequest, opts ...grpc.CallOption) (*GetConversationSummariesResponse, error)
 }
 
 type messageServiceClient struct {
@@ -91,6 +95,16 @@ func (c *messageServiceClient) SyncMessages(ctx context.Context, in *SyncMessage
 	return out, nil
 }
 
+func (c *messageServiceClient) GetConversationSummaries(ctx context.Context, in *GetConversationSummariesRequest, opts ...grpc.CallOption) (*GetConversationSummariesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetConversationSummariesResponse)
+	err := c.cc.Invoke(ctx, MessageService_GetConversationSummaries_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MessageServiceServer is the server API for MessageService service.
 // All implementations must embed UnimplementedMessageServiceServer
 // for forward compatibility.
@@ -107,6 +121,9 @@ type MessageServiceServer interface {
 	// SyncMessages returns missing messages for multiple conversations.
 	// SyncMessages 返回多个会话的缺口消息。
 	SyncMessages(context.Context, *SyncMessagesRequest) (*SyncMessagesResponse, error)
+	// GetConversationSummaries returns last message and unread count for conversations.
+	// GetConversationSummaries 返回会话最后消息和未读数。
+	GetConversationSummaries(context.Context, *GetConversationSummariesRequest) (*GetConversationSummariesResponse, error)
 	mustEmbedUnimplementedMessageServiceServer()
 }
 
@@ -128,6 +145,9 @@ func (UnimplementedMessageServiceServer) ListMessages(context.Context, *ListMess
 }
 func (UnimplementedMessageServiceServer) SyncMessages(context.Context, *SyncMessagesRequest) (*SyncMessagesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method SyncMessages not implemented")
+}
+func (UnimplementedMessageServiceServer) GetConversationSummaries(context.Context, *GetConversationSummariesRequest) (*GetConversationSummariesResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetConversationSummaries not implemented")
 }
 func (UnimplementedMessageServiceServer) mustEmbedUnimplementedMessageServiceServer() {}
 func (UnimplementedMessageServiceServer) testEmbeddedByValue()                        {}
@@ -222,6 +242,24 @@ func _MessageService_SyncMessages_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MessageService_GetConversationSummaries_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConversationSummariesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MessageServiceServer).GetConversationSummaries(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MessageService_GetConversationSummaries_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MessageServiceServer).GetConversationSummaries(ctx, req.(*GetConversationSummariesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MessageService_ServiceDesc is the grpc.ServiceDesc for MessageService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -244,6 +282,10 @@ var MessageService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SyncMessages",
 			Handler:    _MessageService_SyncMessages_Handler,
+		},
+		{
+			MethodName: "GetConversationSummaries",
+			Handler:    _MessageService_GetConversationSummaries_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

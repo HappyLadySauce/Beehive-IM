@@ -235,6 +235,10 @@ func (f *fakeMessageService) SyncMessages(ctx context.Context, in *messageservic
 	return &messageservice.SyncMessagesResponse{Accepted: true}, nil
 }
 
+func (f *fakeMessageService) GetConversationSummaries(ctx context.Context, in *messageservice.GetConversationSummariesRequest, opts ...grpc.CallOption) (*messageservice.GetConversationSummariesResponse, error) {
+	return &messageservice.GetConversationSummariesResponse{Accepted: true}, nil
+}
+
 func assertErrorCode(t *testing.T, frame *pb.GatewayFrame, want string) {
 	t.Helper()
 

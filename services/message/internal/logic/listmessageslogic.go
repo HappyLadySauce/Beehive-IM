@@ -47,6 +47,8 @@ func (l *ListMessagesLogic) ListMessages(in *pb.ListMessagesRequest) (*pb.ListMe
 		in.GetBeforeSeq(),
 		in.GetDirection(),
 		in.GetLimit(),
+		permission.GetVisibleFromSeq(),
+		permission.GetVisibleToSeq(),
 	)
 	if err != nil {
 		if isBusinessError(err) {

@@ -48,9 +48,34 @@ func (l *AckMessagesLogic) AckMessages(in *pb.AckMessagesRequest) (*pb.AckMessag
 		l.Errorf("ack messages failed: conversation_id=%s user_id=%s ack_type=%s error=%v", in.GetConversationId(), in.GetUserId(), in.GetAckType(), err)
 		return nil, err
 	}
+	if maxSeq := maxPositiveSeq(in.GetSeqs()); maxSeq > 0 {
+		marked, err := l.svcCtx.Conversation.MarkConversationRead(l.ctx, &conversationservice.MarkConversationReadRequest{
+			ConversationId: in.GetConversationId(),
+			UserId:         in.GetUserId(),
+			CursorType:     in.GetAckType(),
+			Seq:            maxSeq,
+		})
+		if err != nil {
+			l.Errorf("mark conversation read rpc failed: conversation_id=%s user_id=%s ack_type=%s seq=%d error=%v", in.GetConversationId(), in.GetUserId(), in.GetAckType(), maxSeq, err)
+			return nil, err
+		}
+		if !marked.GetAccepted() {
+			return ackRejected(marked.GetErrorCode(), marked.GetMessage()), nil
+		}
+	}
 	return &pb.AckMessagesResponse{
 		Accepted: true,
 		Message:  "acknowledged",
 		Updated:  updated,
 	}, nil
+}
+
+func maxPositiveSeq(seqs []int64) int64 {
+	var max int64
+	for _, seq := range seqs {
+		if seq > max {
+			max = seq
+		}
+	}
+	return max
 }

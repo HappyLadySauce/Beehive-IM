@@ -1,6 +1,6 @@
 # Beehive-IM 认证模块设计文档
 
-> 版本：v1.2
+> 版本：v1.3
 > 适用范围：Auth 内网 gRPC 服务、公网认证入口代理、本地账号登录、GitHub OAuth2 授权码模式
 > 关联文件：[`docs/gateway/DESIGN.md`](../gateway/DESIGN.md)、[`docs/message/DESIGN.md`](../message/DESIGN.md)、[`docs/infrastructure/DESIGN.md`](../infrastructure/DESIGN.md)、[`proto/auth.proto`](../../proto/auth.proto)、[`sql/migrations/users/001_user.sql`](../../sql/migrations/users/001_user.sql)、[`sql/migrations/auth/002_auth.sql`](../../sql/migrations/auth/002_auth.sql)
 
@@ -20,9 +20,23 @@
 ### 1.2 非目标（v1 不做）
 
 - 多 OAuth 提供方（Google、微信等）的具体实现（表结构已预留 `provider` 字段）
+- GitHub OAuth2 代码接入（当前仅保留 proto 与表结构设计，本轮先完成本地账号闭环）
 - 短信/邮箱验证码登录
 - 细粒度 RBAC 权限系统
 - 联邦 SSO（SAML、OIDC 通用 IdP）
+
+### 1.3 当前实现状态
+
+| 能力 | 当前状态 |
+|------|----------|
+| 本地注册 | 已实现 `Register`，写入 `users`、`user_profiles`、`refresh_tokens` |
+| 本地登录 | 已实现 `Login`，按 username/email/phone 查询并用 bcrypt 校验 |
+| Access token | 已新增 `pkg/authjwt`，Auth 签发 HS256 JWT，Edge 本地验签 Bearer token |
+| Refresh token | 已实现随机 refresh token，数据库仅保存 SHA-256 hash，刷新时轮换并撤销旧 token |
+| Logout | 已实现按 refresh token hash 撤销 |
+| 公网入口 | Edge 已暴露 `/v1/auth/register`、`/v1/auth/login`、`/v1/auth/refresh`、`/v1/auth/logout` 并代理 Auth zRPC |
+| DevAuth | Edge 仅在 `Env=dev/test` 且 `DevAuth.Enabled=true` 时允许 `X-Debug-*` 回退 |
+| GitHub OAuth | proto、SQL 与文档保留，服务逻辑仍为后续阶段 |
 
 ---
 
@@ -136,7 +150,7 @@ erDiagram
 
 | 类型 | `password_hash` | `phone` | 登录方式 |
 |------|-----------------|---------|----------|
-| 本地注册用户 | 有 | 有（注册必填） | 账号 + 密码 |
+| 本地注册用户 | 有 | 可选 | 账号 + 密码 |
 | GitHub 纯 OAuth 用户 | NULL | NULL | GitHub 授权 |
 | 混合用户 | 有 | 有/NULL | 密码或 GitHub（已绑定） |
 
@@ -531,8 +545,9 @@ flowchart LR
 
 | 阶段 | 内容 |
 |------|------|
-| v1（当前） | 本地账号 + GitHub OAuth + Redis state |
-| v1.1 | access token 黑名单（Redis `jwt:bl:{jti}`）支持即时登出 |
+| v1（当前） | 本地账号 JWT、refresh token 轮换、Edge Auth HTTP 代理 |
+| v1.1 | GitHub OAuth + Redis state |
+| v1.2 | access token 黑名单（Redis `jwt:bl:{jti}`）支持即时登出 |
 | v2 | 多 OAuth 提供方插件化（`provider` 枚举 + `OAuthProvider` 接口） |
 | v2 | `LogoutAllDevices(user_id)`、设备指纹 |
 | v3 | RS256 + JWKS 端点供多服务验签 |

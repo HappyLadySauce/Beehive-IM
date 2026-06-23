@@ -23,6 +23,11 @@ GatewayRecovery:
   - 100
   - 200
   IsolationMs: 10000
+Auth:
+  Endpoints:
+  - 127.0.0.1:9000
+  NonBlock: true
+  Timeout: 2000
 Presence:
   Endpoints:
   - 127.0.0.1:9200
@@ -33,6 +38,24 @@ Message:
   - 127.0.0.1:9400
   NonBlock: true
   Timeout: 2000
+Conversation:
+  Endpoints:
+  - 127.0.0.1:9300
+  NonBlock: true
+  Timeout: 2000
+User:
+  Endpoints:
+  - 127.0.0.1:9001
+  NonBlock: true
+  Timeout: 2000
+JWT:
+  Secret: beehive-im-dev-secret-change-me
+  Issuer: beehive-im
+  AccessTTLSeconds: 900
+  PreferEnvWhenEmpty: true
+  AllowDevDefault: true
+DevAuth:
+  Enabled: true
 Registry:
   Endpoints:
   - 127.0.0.1:2379

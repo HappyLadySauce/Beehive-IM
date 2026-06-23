@@ -24,8 +24,12 @@ const (
 	ConversationService_ListConversations_FullMethodName          = "/beehive_im.conversation.ConversationService/ListConversations"
 	ConversationService_AddMembers_FullMethodName                 = "/beehive_im.conversation.ConversationService/AddMembers"
 	ConversationService_RemoveMembers_FullMethodName              = "/beehive_im.conversation.ConversationService/RemoveMembers"
+	ConversationService_LeaveConversation_FullMethodName          = "/beehive_im.conversation.ConversationService/LeaveConversation"
+	ConversationService_DismissConversation_FullMethodName        = "/beehive_im.conversation.ConversationService/DismissConversation"
+	ConversationService_TransferOwner_FullMethodName              = "/beehive_im.conversation.ConversationService/TransferOwner"
 	ConversationService_UpdateMemberRole_FullMethodName           = "/beehive_im.conversation.ConversationService/UpdateMemberRole"
 	ConversationService_UpdateConversationSettings_FullMethodName = "/beehive_im.conversation.ConversationService/UpdateConversationSettings"
+	ConversationService_MarkConversationRead_FullMethodName       = "/beehive_im.conversation.ConversationService/MarkConversationRead"
 	ConversationService_CheckSendPermission_FullMethodName        = "/beehive_im.conversation.ConversationService/CheckSendPermission"
 	ConversationService_CheckReadPermission_FullMethodName        = "/beehive_im.conversation.ConversationService/CheckReadPermission"
 	ConversationService_ResolveMessageRecipients_FullMethodName   = "/beehive_im.conversation.ConversationService/ResolveMessageRecipients"
@@ -51,12 +55,24 @@ type ConversationServiceClient interface {
 	// RemoveMembers marks members as removed from a conversation.
 	// RemoveMembers 将成员标记为已移出会话。
 	RemoveMembers(ctx context.Context, in *RemoveMembersRequest, opts ...grpc.CallOption) (*RemoveMembersResponse, error)
+	// LeaveConversation lets one member leave a group conversation.
+	// LeaveConversation 允许成员退出群聊。
+	LeaveConversation(ctx context.Context, in *LeaveConversationRequest, opts ...grpc.CallOption) (*LeaveConversationResponse, error)
+	// DismissConversation closes a group conversation by owner.
+	// DismissConversation 由群主解散群聊。
+	DismissConversation(ctx context.Context, in *DismissConversationRequest, opts ...grpc.CallOption) (*DismissConversationResponse, error)
+	// TransferOwner transfers group ownership to another active member.
+	// TransferOwner 将群主转让给另一位活跃成员。
+	TransferOwner(ctx context.Context, in *TransferOwnerRequest, opts ...grpc.CallOption) (*TransferOwnerResponse, error)
 	// UpdateMemberRole changes one member role.
 	// UpdateMemberRole 修改单个成员角色。
 	UpdateMemberRole(ctx context.Context, in *UpdateMemberRoleRequest, opts ...grpc.CallOption) (*UpdateMemberRoleResponse, error)
 	// UpdateConversationSettings updates settings owned by one user.
 	// UpdateConversationSettings 更新某个用户自己的会话设置。
 	UpdateConversationSettings(ctx context.Context, in *UpdateConversationSettingsRequest, opts ...grpc.CallOption) (*UpdateConversationSettingsResponse, error)
+	// MarkConversationRead advances one member read or delivered cursor.
+	// MarkConversationRead 推进成员已读或已送达游标。
+	MarkConversationRead(ctx context.Context, in *MarkConversationReadRequest, opts ...grpc.CallOption) (*MarkConversationReadResponse, error)
 	// CheckSendPermission checks whether a user can send to a conversation.
 	// CheckSendPermission 校验用户是否可向会话发送消息。
 	CheckSendPermission(ctx context.Context, in *CheckSendPermissionRequest, opts ...grpc.CallOption) (*CheckSendPermissionResponse, error)
@@ -129,6 +145,36 @@ func (c *conversationServiceClient) RemoveMembers(ctx context.Context, in *Remov
 	return out, nil
 }
 
+func (c *conversationServiceClient) LeaveConversation(ctx context.Context, in *LeaveConversationRequest, opts ...grpc.CallOption) (*LeaveConversationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(LeaveConversationResponse)
+	err := c.cc.Invoke(ctx, ConversationService_LeaveConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) DismissConversation(ctx context.Context, in *DismissConversationRequest, opts ...grpc.CallOption) (*DismissConversationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DismissConversationResponse)
+	err := c.cc.Invoke(ctx, ConversationService_DismissConversation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) TransferOwner(ctx context.Context, in *TransferOwnerRequest, opts ...grpc.CallOption) (*TransferOwnerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TransferOwnerResponse)
+	err := c.cc.Invoke(ctx, ConversationService_TransferOwner_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *conversationServiceClient) UpdateMemberRole(ctx context.Context, in *UpdateMemberRoleRequest, opts ...grpc.CallOption) (*UpdateMemberRoleResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateMemberRoleResponse)
@@ -143,6 +189,16 @@ func (c *conversationServiceClient) UpdateConversationSettings(ctx context.Conte
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(UpdateConversationSettingsResponse)
 	err := c.cc.Invoke(ctx, ConversationService_UpdateConversationSettings_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *conversationServiceClient) MarkConversationRead(ctx context.Context, in *MarkConversationReadRequest, opts ...grpc.CallOption) (*MarkConversationReadResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(MarkConversationReadResponse)
+	err := c.cc.Invoke(ctx, ConversationService_MarkConversationRead_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -208,12 +264,24 @@ type ConversationServiceServer interface {
 	// RemoveMembers marks members as removed from a conversation.
 	// RemoveMembers 将成员标记为已移出会话。
 	RemoveMembers(context.Context, *RemoveMembersRequest) (*RemoveMembersResponse, error)
+	// LeaveConversation lets one member leave a group conversation.
+	// LeaveConversation 允许成员退出群聊。
+	LeaveConversation(context.Context, *LeaveConversationRequest) (*LeaveConversationResponse, error)
+	// DismissConversation closes a group conversation by owner.
+	// DismissConversation 由群主解散群聊。
+	DismissConversation(context.Context, *DismissConversationRequest) (*DismissConversationResponse, error)
+	// TransferOwner transfers group ownership to another active member.
+	// TransferOwner 将群主转让给另一位活跃成员。
+	TransferOwner(context.Context, *TransferOwnerRequest) (*TransferOwnerResponse, error)
 	// UpdateMemberRole changes one member role.
 	// UpdateMemberRole 修改单个成员角色。
 	UpdateMemberRole(context.Context, *UpdateMemberRoleRequest) (*UpdateMemberRoleResponse, error)
 	// UpdateConversationSettings updates settings owned by one user.
 	// UpdateConversationSettings 更新某个用户自己的会话设置。
 	UpdateConversationSettings(context.Context, *UpdateConversationSettingsRequest) (*UpdateConversationSettingsResponse, error)
+	// MarkConversationRead advances one member read or delivered cursor.
+	// MarkConversationRead 推进成员已读或已送达游标。
+	MarkConversationRead(context.Context, *MarkConversationReadRequest) (*MarkConversationReadResponse, error)
 	// CheckSendPermission checks whether a user can send to a conversation.
 	// CheckSendPermission 校验用户是否可向会话发送消息。
 	CheckSendPermission(context.Context, *CheckSendPermissionRequest) (*CheckSendPermissionResponse, error)
@@ -251,11 +319,23 @@ func (UnimplementedConversationServiceServer) AddMembers(context.Context, *AddMe
 func (UnimplementedConversationServiceServer) RemoveMembers(context.Context, *RemoveMembersRequest) (*RemoveMembersResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RemoveMembers not implemented")
 }
+func (UnimplementedConversationServiceServer) LeaveConversation(context.Context, *LeaveConversationRequest) (*LeaveConversationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method LeaveConversation not implemented")
+}
+func (UnimplementedConversationServiceServer) DismissConversation(context.Context, *DismissConversationRequest) (*DismissConversationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method DismissConversation not implemented")
+}
+func (UnimplementedConversationServiceServer) TransferOwner(context.Context, *TransferOwnerRequest) (*TransferOwnerResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method TransferOwner not implemented")
+}
 func (UnimplementedConversationServiceServer) UpdateMemberRole(context.Context, *UpdateMemberRoleRequest) (*UpdateMemberRoleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateMemberRole not implemented")
 }
 func (UnimplementedConversationServiceServer) UpdateConversationSettings(context.Context, *UpdateConversationSettingsRequest) (*UpdateConversationSettingsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method UpdateConversationSettings not implemented")
+}
+func (UnimplementedConversationServiceServer) MarkConversationRead(context.Context, *MarkConversationReadRequest) (*MarkConversationReadResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method MarkConversationRead not implemented")
 }
 func (UnimplementedConversationServiceServer) CheckSendPermission(context.Context, *CheckSendPermissionRequest) (*CheckSendPermissionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CheckSendPermission not implemented")
@@ -380,6 +460,60 @@ func _ConversationService_RemoveMembers_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConversationService_LeaveConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LeaveConversationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).LeaveConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_LeaveConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).LeaveConversation(ctx, req.(*LeaveConversationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_DismissConversation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DismissConversationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).DismissConversation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_DismissConversation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).DismissConversation(ctx, req.(*DismissConversationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_TransferOwner_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TransferOwnerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).TransferOwner(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_TransferOwner_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).TransferOwner(ctx, req.(*TransferOwnerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ConversationService_UpdateMemberRole_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(UpdateMemberRoleRequest)
 	if err := dec(in); err != nil {
@@ -412,6 +546,24 @@ func _ConversationService_UpdateConversationSettings_Handler(srv interface{}, ct
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ConversationServiceServer).UpdateConversationSettings(ctx, req.(*UpdateConversationSettingsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConversationService_MarkConversationRead_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MarkConversationReadRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConversationServiceServer).MarkConversationRead(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConversationService_MarkConversationRead_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConversationServiceServer).MarkConversationRead(ctx, req.(*MarkConversationReadRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -516,12 +668,28 @@ var ConversationService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ConversationService_RemoveMembers_Handler,
 		},
 		{
+			MethodName: "LeaveConversation",
+			Handler:    _ConversationService_LeaveConversation_Handler,
+		},
+		{
+			MethodName: "DismissConversation",
+			Handler:    _ConversationService_DismissConversation_Handler,
+		},
+		{
+			MethodName: "TransferOwner",
+			Handler:    _ConversationService_TransferOwner_Handler,
+		},
+		{
 			MethodName: "UpdateMemberRole",
 			Handler:    _ConversationService_UpdateMemberRole_Handler,
 		},
 		{
 			MethodName: "UpdateConversationSettings",
 			Handler:    _ConversationService_UpdateConversationSettings_Handler,
+		},
+		{
+			MethodName: "MarkConversationRead",
+			Handler:    _ConversationService_MarkConversationRead_Handler,
 		},
 		{
 			MethodName: "CheckSendPermission",

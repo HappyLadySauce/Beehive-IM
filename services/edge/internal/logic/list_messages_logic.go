@@ -29,21 +29,21 @@ func NewListMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *List
 }
 
 func (l *ListMessagesLogic) ListMessages(req *types.ListMessagesRequest, r *http.Request) (resp *types.ListMessagesResponse, err error) {
-	userID, err := debugUserID(r)
+	identity, err := requestIdentity(l.svcCtx, r, false)
 	if err != nil {
 		return nil, err
 	}
 
 	result, err := l.svcCtx.Message.ListMessages(l.ctx, &messageservice.ListMessagesRequest{
 		ConversationId: req.ConversationId,
-		UserId:         userID,
+		UserId:         identity.UserID,
 		AfterSeq:       req.AfterSeq,
 		BeforeSeq:      req.BeforeSeq,
 		Direction:      req.Direction,
 		Limit:          req.Limit,
 	})
 	if err != nil {
-		l.Errorf("message list rpc failed: conversation_id=%s user_id=%s error=%v", req.ConversationId, userID, err)
+		l.Errorf("message list rpc failed: conversation_id=%s user_id=%s error=%v", req.ConversationId, identity.UserID, err)
 		return nil, err
 	}
 	return &types.ListMessagesResponse{

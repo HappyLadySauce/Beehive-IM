@@ -22,6 +22,47 @@ type HealthResponse {
 	Status string `json:"status"`
 }
 
+type AuthUserInfo {
+	Id       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email,optional"`
+	Avatar   string `json:"avatar,optional"`
+}
+
+type RegisterRequest {
+	Username string `json:"username"`
+	Email    string `json:"email,optional"`
+	Phone    string `json:"phone,optional"`
+	Password string `json:"password"`
+}
+
+type LoginRequest {
+	Account  string `json:"account"`
+	Password string `json:"password"`
+}
+
+type RefreshTokenRequest {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type LogoutRequest {
+	RefreshToken string `json:"refresh_token"`
+}
+
+type AuthTokenResponse {
+	AccessToken  string       `json:"access_token"`
+	RefreshToken string       `json:"refresh_token"`
+	ExpiresIn    int64        `json:"expires_in"`
+	TokenType    string       `json:"token_type"`
+	User         AuthUserInfo `json:"user"`
+}
+
+type EmptyResponse {
+	Success   bool   `json:"success"`
+	ErrorCode string `json:"error_code,optional"`
+	Message   string `json:"message,optional"`
+}
+
 type MessageItem {
 	MessageId      string `json:"message_id"`
 	ConversationId string `json:"conversation_id"`
@@ -87,9 +128,135 @@ type AckMessagesResponse {
 	Updated   int32  `json:"updated"`
 }
 
+type MemberInput {
+	UserId string `json:"user_id"`
+	Role   string `json:"role,optional"`
+}
+
+type Conversation {
+	ConversationId string `json:"conversation_id"`
+	Type           string `json:"type"`
+	Status         string `json:"status"`
+	Title          string `json:"title"`
+	OwnerUserId    string `json:"owner_user_id"`
+	CurrentSeq     int64  `json:"current_seq"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+type ConversationMember {
+	ConversationId   string `json:"conversation_id"`
+	UserId           string `json:"user_id"`
+	Role             string `json:"role"`
+	Status           string `json:"status"`
+	MutedUntil       string `json:"muted_until,optional"`
+	JoinedAt         string `json:"joined_at"`
+	UpdatedAt        string `json:"updated_at"`
+	VisibleFromSeq   int64  `json:"visible_from_seq"`
+	VisibleToSeq     int64  `json:"visible_to_seq"`
+	LastReadSeq      int64  `json:"last_read_seq"`
+	LastDeliveredSeq int64  `json:"last_delivered_seq"`
+	LastReadAt       string `json:"last_read_at,optional"`
+}
+
+type ConversationSettings {
+	ConversationId string `json:"conversation_id"`
+	UserId         string `json:"user_id"`
+	Pinned         bool   `json:"pinned"`
+	MutedUntil     string `json:"muted_until,optional"`
+	Remark         string `json:"remark,optional"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+type ConversationListItem {
+	Conversation Conversation         `json:"conversation"`
+	Member       ConversationMember   `json:"member"`
+	Settings     ConversationSettings `json:"settings"`
+	MemberCount  int32                `json:"member_count"`
+	LastMessage  MessageItem          `json:"last_message,optional"`
+	LatestSeq    int64                `json:"latest_seq"`
+	UnreadCount  int64                `json:"unread_count"`
+}
+
+type ConversationResponse {
+	Accepted     bool                 `json:"accepted"`
+	ErrorCode    string               `json:"error_code,optional"`
+	Message      string               `json:"message"`
+	Conversation Conversation         `json:"conversation"`
+	Members      []ConversationMember `json:"members,optional"`
+	Settings     ConversationSettings `json:"settings,optional"`
+}
+
+type CreateDirectConversationRequest {
+	PeerUserId string `json:"peer_user_id"`
+	Title      string `json:"title,optional"`
+}
+
+type CreateGroupConversationRequest {
+	Title   string        `json:"title"`
+	Members []MemberInput `json:"members"`
+}
+
+type ListConversationsRequest {
+	Limit  int32 `form:"limit,optional"`
+	Offset int32 `form:"offset,optional"`
+}
+
+type ListConversationsResponse {
+	Items []ConversationListItem `json:"items"`
+}
+
+type GetConversationRequest {
+	ConversationId string `path:"conversation_id"`
+}
+
+type AddConversationMembersRequest {
+	ConversationId string        `path:"conversation_id"`
+	Members        []MemberInput `json:"members"`
+}
+
+type RemoveConversationMemberRequest {
+	ConversationId string `path:"conversation_id"`
+	UserId         string `path:"user_id"`
+}
+
+type UpdateMemberRoleRequest {
+	ConversationId string `path:"conversation_id"`
+	UserId         string `path:"user_id"`
+	Role           string `json:"role"`
+}
+
+type UpdateConversationSettingsRequest {
+	ConversationId string `path:"conversation_id"`
+	Pinned         bool   `json:"pinned"`
+	MutedUntil     string `json:"muted_until,optional"`
+	Remark         string `json:"remark,optional"`
+}
+
+type ConversationActionRequest {
+	ConversationId string `path:"conversation_id"`
+}
+
+type TransferOwnerRequest {
+	ConversationId string `path:"conversation_id"`
+	TargetUserId   string `json:"target_user_id"`
+}
+
 service edge-api {
 	@handler healthz
 	get /healthz returns (HealthResponse)
+
+	@handler register
+	post /v1/auth/register (RegisterRequest) returns (AuthTokenResponse)
+
+	@handler login
+	post /v1/auth/login (LoginRequest) returns (AuthTokenResponse)
+
+	@handler refreshToken
+	post /v1/auth/refresh (RefreshTokenRequest) returns (AuthTokenResponse)
+
+	@handler logout
+	post /v1/auth/logout (LogoutRequest) returns (EmptyResponse)
 
 	@handler createWsTicket
 	post /v1/ws/ticket (TicketRequest) returns (TicketResponse)
@@ -105,5 +272,37 @@ service edge-api {
 
 	@handler ackMessages
 	post /v1/messages/ack (AckMessagesRequest) returns (AckMessagesResponse)
-}
 
+	@handler createDirectConversation
+	post /v1/conversations/direct (CreateDirectConversationRequest) returns (ConversationResponse)
+
+	@handler createGroupConversation
+	post /v1/conversations/group (CreateGroupConversationRequest) returns (ConversationResponse)
+
+	@handler listConversations
+	get /v1/conversations (ListConversationsRequest) returns (ListConversationsResponse)
+
+	@handler getConversation
+	get /v1/conversations/:conversation_id (GetConversationRequest) returns (ConversationResponse)
+
+	@handler addConversationMembers
+	post /v1/conversations/:conversation_id/members (AddConversationMembersRequest) returns (ConversationResponse)
+
+	@handler removeConversationMember
+	delete /v1/conversations/:conversation_id/members/:user_id (RemoveConversationMemberRequest) returns (EmptyResponse)
+
+	@handler updateMemberRole
+	patch /v1/conversations/:conversation_id/members/:user_id/role (UpdateMemberRoleRequest) returns (ConversationResponse)
+
+	@handler updateConversationSettings
+	patch /v1/conversations/:conversation_id/settings (UpdateConversationSettingsRequest) returns (ConversationResponse)
+
+	@handler leaveConversation
+	post /v1/conversations/:conversation_id/leave (ConversationActionRequest) returns (EmptyResponse)
+
+	@handler dismissConversation
+	post /v1/conversations/:conversation_id/dismiss (ConversationActionRequest) returns (EmptyResponse)
+
+	@handler transferOwner
+	post /v1/conversations/:conversation_id/transfer-owner (TransferOwnerRequest) returns (ConversationResponse)
+}

@@ -62,13 +62,18 @@ type Conversation struct {
 // Member is the repository read model for a conversation member.
 // Member 是会话成员仓库读取模型。
 type Member struct {
-	ConversationID string
-	UserID         string
-	Role           string
-	Status         string
-	MutedUntil     *time.Time
-	JoinedAt       time.Time
-	UpdatedAt      time.Time
+	ConversationID   string
+	UserID           string
+	Role             string
+	Status           string
+	MutedUntil       *time.Time
+	JoinedAt         time.Time
+	UpdatedAt        time.Time
+	VisibleFromSeq   int64
+	VisibleToSeq     int64
+	LastReadSeq      int64
+	LastDeliveredSeq int64
+	LastReadAt       *time.Time
 }
 
 // Settings is the repository read model for per-user conversation settings.
@@ -80,6 +85,22 @@ type Settings struct {
 	MutedUntil     *time.Time
 	Remark         string
 	UpdatedAt      time.Time
+}
+
+// ListItem is one inbox row returned by Conversation service.
+// ListItem 是 Conversation 服务返回的一条会话列表行。
+type ListItem struct {
+	Conversation Conversation
+	Member       Member
+	Settings     Settings
+	MemberCount  int32
+}
+
+// ReadPermission carries the readable sequence range for a member.
+// ReadPermission 携带成员可读消息序列范围。
+type ReadPermission struct {
+	VisibleFromSeq int64
+	VisibleToSeq   int64
 }
 
 type MemberInput struct {
@@ -137,6 +158,24 @@ func (r *Repository) Create(ctx context.Context, input CreateInput) (Conversatio
 	if err != nil {
 		return Conversation{}, nil, err
 	}
+	if input.Type == TypeDirect && len(members) != 2 {
+		return Conversation{}, nil, fmt.Errorf("%w: direct conversation requires exactly two members", ErrInvalidArgument)
+	}
+	if input.Type == TypeGroup && len(members) < 3 {
+		return Conversation{}, nil, fmt.Errorf("%w: group conversation requires at least three members", ErrInvalidArgument)
+	}
+	var directLow, directHigh string
+	if input.Type == TypeDirect {
+		directLow, directHigh = directPair(members[0].UserID, members[1].UserID)
+		if directLow == "" || directHigh == "" {
+			return Conversation{}, nil, fmt.Errorf("%w: direct conversation users must be different", ErrInvalidArgument)
+		}
+		if conversation, existingMembers, found, err := r.getDirectConversation(ctx, directLow, directHigh); err != nil {
+			return Conversation{}, nil, err
+		} else if found {
+			return conversation, existingMembers, nil
+		}
+	}
 	conversationID := uuid.NewString()
 
 	tx, err := r.db.Begin(ctx)
@@ -153,9 +192,32 @@ VALUES ($1, $2, 'active', $3, $4)`, conversationID, input.Type, input.Title, inp
 
 	for _, member := range members {
 		if _, err = tx.Exec(ctx, `
-INSERT INTO conversation_members (conversation_id, user_id, role, status)
-VALUES ($1, $2, $3, 'active')`, conversationID, member.UserID, member.Role); err != nil {
+INSERT INTO conversation_members (conversation_id, user_id, role, status, visible_from_seq, visible_to_seq, last_read_seq, last_delivered_seq)
+VALUES ($1, $2, $3, 'active', 1, 0, 0, 0)`, conversationID, member.UserID, member.Role); err != nil {
 			return Conversation{}, nil, fmt.Errorf("insert conversation member: %w", err)
+		}
+	}
+
+	if input.Type == TypeDirect {
+		var mappedID string
+		err = tx.QueryRow(ctx, `
+INSERT INTO direct_conversations (conversation_id, user_low, user_high)
+VALUES ($1, $2, $3)
+ON CONFLICT (user_low, user_high) DO NOTHING
+RETURNING conversation_id`, conversationID, directLow, directHigh).Scan(&mappedID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			_ = tx.Rollback(ctx)
+			conversation, members, found, lookupErr := r.getDirectConversation(ctx, directLow, directHigh)
+			if lookupErr != nil {
+				return Conversation{}, nil, lookupErr
+			}
+			if !found {
+				return Conversation{}, nil, errors.New("direct conversation conflict was not visible after insert")
+			}
+			return conversation, members, nil
+		}
+		if err != nil {
+			return Conversation{}, nil, fmt.Errorf("insert direct conversation mapping: %w", err)
 		}
 	}
 
@@ -200,7 +262,7 @@ func (r *Repository) Get(ctx context.Context, conversationID, requesterUserID st
 	return conversation, members, settings, nil
 }
 
-func (r *Repository) List(ctx context.Context, userID string, limit, offset int32) ([]Conversation, error) {
+func (r *Repository) List(ctx context.Context, userID string, limit, offset int32) ([]ListItem, error) {
 	if r == nil || r.db == nil {
 		return nil, errors.New("conversation repository is not initialized")
 	}
@@ -216,31 +278,63 @@ func (r *Repository) List(ctx context.Context, userID string, limit, offset int3
 	}
 
 	rows, err := r.db.Query(ctx, `
-SELECT c.conversation_id, c.type, c.status, c.title, c.owner_user_id, c.current_seq, c.created_at, c.updated_at
+SELECT c.conversation_id,
+       c.type,
+       c.status,
+       c.title,
+       c.owner_user_id,
+       c.current_seq,
+       c.created_at,
+       c.updated_at,
+       m.conversation_id,
+       m.user_id,
+       m.role,
+       m.status,
+       m.muted_until,
+       m.joined_at,
+       m.updated_at,
+       m.visible_from_seq,
+       m.visible_to_seq,
+       m.last_read_seq,
+       m.last_delivered_seq,
+       m.last_read_at,
+       COALESCE(s.conversation_id, c.conversation_id),
+       COALESCE(s.user_id, m.user_id),
+       COALESCE(s.pinned, false),
+       s.muted_until,
+       COALESCE(s.remark, ''),
+       COALESCE(s.updated_at, NOW()),
+       (
+           SELECT COUNT(*)
+           FROM conversation_members cm
+           WHERE cm.conversation_id = c.conversation_id AND cm.status = 'active'
+       ) AS member_count
 FROM conversations c
 JOIN conversation_members m ON m.conversation_id = c.conversation_id
+LEFT JOIN conversation_settings s ON s.conversation_id = c.conversation_id AND s.user_id = m.user_id
 WHERE m.user_id = $1
   AND m.status = 'active'
+  AND c.status = 'active'
   AND c.deleted_at IS NULL
-ORDER BY c.updated_at DESC
+ORDER BY COALESCE(s.pinned, false) DESC, c.updated_at DESC
 LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("query conversations: %w", err)
 	}
 	defer rows.Close()
 
-	var conversations []Conversation
+	var items []ListItem
 	for rows.Next() {
-		conversation, err := scanConversation(rows)
+		item, err := scanListItem(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan conversation list item: %w", err)
 		}
-		conversations = append(conversations, conversation)
+		items = append(items, item)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("scan conversations: %w", err)
 	}
-	return conversations, nil
+	return items, nil
 }
 
 func (r *Repository) AddMembers(ctx context.Context, conversationID, actorUserID string, inputs []MemberInput) ([]Member, error) {
@@ -269,15 +363,27 @@ func (r *Repository) AddMembers(ctx context.Context, conversationID, actorUserID
 	if err = requireManager(ctx, tx, conversationID, actorUserID); err != nil {
 		return nil, err
 	}
+	conversation, err := queryConversation(ctx, tx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if conversation.Type == TypeDirect {
+		return nil, fmt.Errorf("%w: direct conversation does not support adding members", ErrInvalidArgument)
+	}
+	visibleFromSeq := conversation.CurrentSeq + 1
 	for _, member := range members {
 		if member.Role == RoleOwner {
 			return nil, fmt.Errorf("%w: owner role cannot be assigned by add members", ErrInvalidArgument)
 		}
 		if _, err = tx.Exec(ctx, `
-INSERT INTO conversation_members (conversation_id, user_id, role, status, muted_until)
-VALUES ($1, $2, $3, 'active', NULL)
+INSERT INTO conversation_members (conversation_id, user_id, role, status, muted_until, visible_from_seq, visible_to_seq)
+VALUES ($1, $2, $3, 'active', NULL, $4, 0)
 ON CONFLICT (conversation_id, user_id)
-DO UPDATE SET role = EXCLUDED.role, status = 'active', muted_until = NULL`, conversationID, member.UserID, member.Role); err != nil {
+DO UPDATE SET role = EXCLUDED.role,
+              status = 'active',
+              muted_until = NULL,
+              visible_from_seq = EXCLUDED.visible_from_seq,
+              visible_to_seq = 0`, conversationID, member.UserID, member.Role, visibleFromSeq); err != nil {
 			return nil, fmt.Errorf("upsert conversation member: %w", err)
 		}
 	}
@@ -311,6 +417,13 @@ func (r *Repository) RemoveMembers(ctx context.Context, conversationID, actorUse
 	if err = requireManager(ctx, tx, conversationID, actorUserID); err != nil {
 		return 0, err
 	}
+	conversation, err := queryConversation(ctx, tx, conversationID)
+	if err != nil {
+		return 0, err
+	}
+	if conversation.Type == TypeDirect {
+		return 0, fmt.Errorf("%w: direct conversation does not support removing members", ErrInvalidArgument)
+	}
 	for _, target := range targets {
 		role, status, err := queryMemberRoleStatus(ctx, tx, conversationID, target)
 		if err != nil {
@@ -325,8 +438,9 @@ func (r *Repository) RemoveMembers(ctx context.Context, conversationID, actorUse
 	}
 	tag, err := tx.Exec(ctx, `
 UPDATE conversation_members
-SET status = 'removed'
-WHERE conversation_id = $1 AND user_id = ANY($2) AND status = 'active'`, conversationID, targets)
+SET status = 'removed',
+    visible_to_seq = $3
+WHERE conversation_id = $1 AND user_id = ANY($2) AND status = 'active'`, conversationID, targets, conversation.CurrentSeq)
 	if err != nil {
 		return 0, fmt.Errorf("remove conversation members: %w", err)
 	}
@@ -334,6 +448,174 @@ WHERE conversation_id = $1 AND user_id = ANY($2) AND status = 'active'`, convers
 		return 0, fmt.Errorf("commit remove members transaction: %w", err)
 	}
 	return int32(tag.RowsAffected()), nil
+}
+
+func (r *Repository) LeaveConversation(ctx context.Context, conversationID, actorUserID string) error {
+	if r == nil || r.db == nil {
+		return errors.New("conversation repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	actorUserID = normalizeID(actorUserID)
+	if conversationID == "" || actorUserID == "" {
+		return fmt.Errorf("%w: conversation_id and actor_user_id are required", ErrInvalidArgument)
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin leave conversation transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	conversation, err := queryConversation(ctx, tx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conversation.Type == TypeDirect {
+		return fmt.Errorf("%w: direct conversation does not support leave", ErrInvalidArgument)
+	}
+	role, status, err := queryMemberRoleStatus(ctx, tx, conversationID, actorUserID)
+	if err != nil {
+		return err
+	}
+	if status != MemberStatusActive {
+		return ErrPermissionDenied
+	}
+	if role == RoleOwner {
+		return fmt.Errorf("%w: owner must transfer or dismiss before leaving", ErrPermissionDenied)
+	}
+	if _, err = tx.Exec(ctx, `
+UPDATE conversation_members
+SET status = 'removed',
+    visible_to_seq = $3
+WHERE conversation_id = $1 AND user_id = $2 AND status = 'active'`, conversationID, actorUserID, conversation.CurrentSeq); err != nil {
+		return fmt.Errorf("leave conversation: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit leave conversation transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) DismissConversation(ctx context.Context, conversationID, actorUserID string) error {
+	if r == nil || r.db == nil {
+		return errors.New("conversation repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	actorUserID = normalizeID(actorUserID)
+	if conversationID == "" || actorUserID == "" {
+		return fmt.Errorf("%w: conversation_id and actor_user_id are required", ErrInvalidArgument)
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin dismiss conversation transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	conversation, err := queryConversation(ctx, tx, conversationID)
+	if err != nil {
+		return err
+	}
+	if conversation.Type == TypeDirect {
+		return fmt.Errorf("%w: direct conversation does not support dismiss", ErrInvalidArgument)
+	}
+	role, status, err := queryMemberRoleStatus(ctx, tx, conversationID, actorUserID)
+	if err != nil {
+		return err
+	}
+	if role != RoleOwner || status != MemberStatusActive {
+		return ErrPermissionDenied
+	}
+	if _, err = tx.Exec(ctx, `
+UPDATE conversations
+SET status = 'closed'
+WHERE conversation_id = $1 AND status = 'active'`, conversationID); err != nil {
+		return fmt.Errorf("close conversation: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+UPDATE conversation_members
+SET status = 'removed',
+    visible_to_seq = CASE WHEN visible_to_seq > 0 THEN visible_to_seq ELSE $2 END
+WHERE conversation_id = $1 AND status = 'active'`, conversationID, conversation.CurrentSeq); err != nil {
+		return fmt.Errorf("remove dismissed conversation members: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit dismiss conversation transaction: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) TransferOwner(ctx context.Context, conversationID, actorUserID, targetUserID string) (Member, Member, error) {
+	if r == nil || r.db == nil {
+		return Member{}, Member{}, errors.New("conversation repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	actorUserID = normalizeID(actorUserID)
+	targetUserID = normalizeID(targetUserID)
+	if conversationID == "" || actorUserID == "" || targetUserID == "" {
+		return Member{}, Member{}, fmt.Errorf("%w: conversation_id, actor_user_id and target_user_id are required", ErrInvalidArgument)
+	}
+	if actorUserID == targetUserID {
+		return Member{}, Member{}, fmt.Errorf("%w: target_user_id must be different from owner", ErrInvalidArgument)
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return Member{}, Member{}, fmt.Errorf("begin transfer owner transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	conversation, err := queryConversation(ctx, tx, conversationID)
+	if err != nil {
+		return Member{}, Member{}, err
+	}
+	if conversation.Type == TypeDirect {
+		return Member{}, Member{}, fmt.Errorf("%w: direct conversation does not support owner transfer", ErrInvalidArgument)
+	}
+	actorRole, actorStatus, err := queryMemberRoleStatus(ctx, tx, conversationID, actorUserID)
+	if err != nil {
+		return Member{}, Member{}, err
+	}
+	if actorRole != RoleOwner || actorStatus != MemberStatusActive {
+		return Member{}, Member{}, ErrPermissionDenied
+	}
+	_, targetStatus, err := queryMemberRoleStatus(ctx, tx, conversationID, targetUserID)
+	if err != nil {
+		return Member{}, Member{}, err
+	}
+	if targetStatus != MemberStatusActive {
+		return Member{}, Member{}, ErrMemberNotFound
+	}
+	if _, err = tx.Exec(ctx, `
+UPDATE conversation_members
+SET role = 'admin'
+WHERE conversation_id = $1 AND user_id = $2`, conversationID, actorUserID); err != nil {
+		return Member{}, Member{}, fmt.Errorf("downgrade old owner: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+UPDATE conversation_members
+SET role = 'owner'
+WHERE conversation_id = $1 AND user_id = $2`, conversationID, targetUserID); err != nil {
+		return Member{}, Member{}, fmt.Errorf("promote new owner: %w", err)
+	}
+	if _, err = tx.Exec(ctx, `
+UPDATE conversations
+SET owner_user_id = $2
+WHERE conversation_id = $1`, conversationID, targetUserID); err != nil {
+		return Member{}, Member{}, fmt.Errorf("update conversation owner: %w", err)
+	}
+	oldOwner, err := queryMember(ctx, tx, conversationID, actorUserID)
+	if err != nil {
+		return Member{}, Member{}, err
+	}
+	newOwner, err := queryMember(ctx, tx, conversationID, targetUserID)
+	if err != nil {
+		return Member{}, Member{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Member{}, Member{}, fmt.Errorf("commit transfer owner transaction: %w", err)
+	}
+	return oldOwner, newOwner, nil
 }
 
 func (r *Repository) UpdateMemberRole(ctx context.Context, conversationID, actorUserID, targetUserID, role string) (Member, error) {
@@ -434,16 +716,85 @@ func (r *Repository) CheckSendPermission(ctx context.Context, conversationID, us
 	return requireSendPermission(ctx, r.db, normalizeID(conversationID), normalizeID(userID))
 }
 
-func (r *Repository) CheckReadPermission(ctx context.Context, conversationID, userID string) error {
+func (r *Repository) CheckReadPermission(ctx context.Context, conversationID, userID string) (ReadPermission, error) {
 	if r == nil || r.db == nil {
-		return errors.New("conversation repository is not initialized")
+		return ReadPermission{}, errors.New("conversation repository is not initialized")
 	}
 	conversationID = normalizeID(conversationID)
 	userID = normalizeID(userID)
 	if conversationID == "" || userID == "" {
-		return fmt.Errorf("%w: conversation_id and user_id are required", ErrInvalidArgument)
+		return ReadPermission{}, fmt.Errorf("%w: conversation_id and user_id are required", ErrInvalidArgument)
 	}
-	return requireActiveMember(ctx, r.db, conversationID, userID)
+	var conversationStatus, memberStatus string
+	var visibleFromSeq, visibleToSeq int64
+	err := r.db.QueryRow(ctx, `
+SELECT c.status, m.status, m.visible_from_seq, m.visible_to_seq
+FROM conversations c
+JOIN conversation_members m ON m.conversation_id = c.conversation_id
+WHERE c.conversation_id = $1
+  AND c.deleted_at IS NULL
+  AND m.user_id = $2`, conversationID, userID).Scan(&conversationStatus, &memberStatus, &visibleFromSeq, &visibleToSeq)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ReadPermission{}, ErrPermissionDenied
+	}
+	if err != nil {
+		return ReadPermission{}, fmt.Errorf("query read permission: %w", err)
+	}
+	if conversationStatus != StatusActive && memberStatus == MemberStatusActive {
+		return ReadPermission{}, ErrConversationClosed
+	}
+	if memberStatus != MemberStatusActive && memberStatus != MemberStatusRemoved {
+		return ReadPermission{}, ErrPermissionDenied
+	}
+	if visibleFromSeq <= 0 {
+		visibleFromSeq = 1
+	}
+	return ReadPermission{
+		VisibleFromSeq: visibleFromSeq,
+		VisibleToSeq:   visibleToSeq,
+	}, nil
+}
+
+func (r *Repository) MarkRead(ctx context.Context, conversationID, userID, cursorType string, seq int64) (Member, error) {
+	if r == nil || r.db == nil {
+		return Member{}, errors.New("conversation repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	userID = normalizeID(userID)
+	cursorType = strings.ToLower(strings.TrimSpace(cursorType))
+	if conversationID == "" || userID == "" || seq <= 0 {
+		return Member{}, fmt.Errorf("%w: conversation_id, user_id and seq are required", ErrInvalidArgument)
+	}
+	if cursorType != "delivered" && cursorType != "read" {
+		return Member{}, fmt.Errorf("%w: unsupported cursor_type", ErrInvalidArgument)
+	}
+	permission, err := r.CheckReadPermission(ctx, conversationID, userID)
+	if err != nil {
+		return Member{}, err
+	}
+	if seq < permission.VisibleFromSeq {
+		return Member{}, fmt.Errorf("%w: seq is outside visible range", ErrInvalidArgument)
+	}
+	if permission.VisibleToSeq > 0 && seq > permission.VisibleToSeq {
+		return Member{}, fmt.Errorf("%w: seq is outside visible range", ErrInvalidArgument)
+	}
+	if cursorType == "read" {
+		_, err = r.db.Exec(ctx, `
+UPDATE conversation_members
+SET last_read_seq = GREATEST(last_read_seq, $3),
+    last_delivered_seq = GREATEST(last_delivered_seq, $3),
+    last_read_at = NOW()
+WHERE conversation_id = $1 AND user_id = $2`, conversationID, userID, seq)
+	} else {
+		_, err = r.db.Exec(ctx, `
+UPDATE conversation_members
+SET last_delivered_seq = GREATEST(last_delivered_seq, $3)
+WHERE conversation_id = $1 AND user_id = $2`, conversationID, userID, seq)
+	}
+	if err != nil {
+		return Member{}, fmt.Errorf("mark conversation read state: %w", err)
+	}
+	return queryMember(ctx, r.db, conversationID, userID)
 }
 
 func (r *Repository) ResolveMessageRecipients(ctx context.Context, conversationID string) ([]string, error) {
@@ -556,9 +907,36 @@ WHERE conversation_id = $1 AND deleted_at IS NULL`, conversationID))
 	return conversation, nil
 }
 
+func (r *Repository) getDirectConversation(ctx context.Context, userLow, userHigh string) (Conversation, []Member, bool, error) {
+	if r == nil || r.db == nil {
+		return Conversation{}, nil, false, errors.New("conversation repository is not initialized")
+	}
+	var conversationID string
+	err := r.db.QueryRow(ctx, `
+SELECT conversation_id
+FROM direct_conversations
+WHERE user_low = $1 AND user_high = $2`, userLow, userHigh).Scan(&conversationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Conversation{}, nil, false, nil
+	}
+	if err != nil {
+		return Conversation{}, nil, false, fmt.Errorf("query direct conversation mapping: %w", err)
+	}
+	conversation, err := queryConversation(ctx, r.db, conversationID)
+	if err != nil {
+		return Conversation{}, nil, false, err
+	}
+	members, err := queryMembers(ctx, r.db, conversationID)
+	if err != nil {
+		return Conversation{}, nil, false, err
+	}
+	return conversation, members, true, nil
+}
+
 func queryMembers(ctx context.Context, q querier, conversationID string) ([]Member, error) {
 	rows, err := q.Query(ctx, `
-SELECT conversation_id, user_id, role, status, muted_until, joined_at, updated_at
+SELECT conversation_id, user_id, role, status, muted_until, joined_at, updated_at,
+       visible_from_seq, visible_to_seq, last_read_seq, last_delivered_seq, last_read_at
 FROM conversation_members
 WHERE conversation_id = $1
 ORDER BY joined_at ASC, user_id ASC`, conversationID)
@@ -583,7 +961,8 @@ ORDER BY joined_at ASC, user_id ASC`, conversationID)
 
 func queryMember(ctx context.Context, q querier, conversationID, userID string) (Member, error) {
 	member, err := scanMember(q.QueryRow(ctx, `
-SELECT conversation_id, user_id, role, status, muted_until, joined_at, updated_at
+SELECT conversation_id, user_id, role, status, muted_until, joined_at, updated_at,
+       visible_from_seq, visible_to_seq, last_read_seq, last_delivered_seq, last_read_at
 FROM conversation_members
 WHERE conversation_id = $1 AND user_id = $2`, conversationID, userID))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -747,11 +1126,69 @@ func scanConversation(scanner rowScanner) (Conversation, error) {
 func scanMember(scanner rowScanner) (Member, error) {
 	var m Member
 	var muted pgtype.Timestamptz
-	if err := scanner.Scan(&m.ConversationID, &m.UserID, &m.Role, &m.Status, &muted, &m.JoinedAt, &m.UpdatedAt); err != nil {
+	var lastReadAt pgtype.Timestamptz
+	if err := scanner.Scan(
+		&m.ConversationID,
+		&m.UserID,
+		&m.Role,
+		&m.Status,
+		&muted,
+		&m.JoinedAt,
+		&m.UpdatedAt,
+		&m.VisibleFromSeq,
+		&m.VisibleToSeq,
+		&m.LastReadSeq,
+		&m.LastDeliveredSeq,
+		&lastReadAt,
+	); err != nil {
 		return Member{}, err
 	}
 	m.MutedUntil = timePtr(muted)
+	m.LastReadAt = timePtr(lastReadAt)
 	return m, nil
+}
+
+func scanListItem(scanner rowScanner) (ListItem, error) {
+	var item ListItem
+	var memberMuted, memberLastReadAt, settingsMuted pgtype.Timestamptz
+	var memberCount int64
+	err := scanner.Scan(
+		&item.Conversation.ConversationID,
+		&item.Conversation.Type,
+		&item.Conversation.Status,
+		&item.Conversation.Title,
+		&item.Conversation.OwnerUserID,
+		&item.Conversation.CurrentSeq,
+		&item.Conversation.CreatedAt,
+		&item.Conversation.UpdatedAt,
+		&item.Member.ConversationID,
+		&item.Member.UserID,
+		&item.Member.Role,
+		&item.Member.Status,
+		&memberMuted,
+		&item.Member.JoinedAt,
+		&item.Member.UpdatedAt,
+		&item.Member.VisibleFromSeq,
+		&item.Member.VisibleToSeq,
+		&item.Member.LastReadSeq,
+		&item.Member.LastDeliveredSeq,
+		&memberLastReadAt,
+		&item.Settings.ConversationID,
+		&item.Settings.UserID,
+		&item.Settings.Pinned,
+		&settingsMuted,
+		&item.Settings.Remark,
+		&item.Settings.UpdatedAt,
+		&memberCount,
+	)
+	if err != nil {
+		return ListItem{}, err
+	}
+	item.Member.MutedUntil = timePtr(memberMuted)
+	item.Member.LastReadAt = timePtr(memberLastReadAt)
+	item.Settings.MutedUntil = timePtr(settingsMuted)
+	item.MemberCount = int32(memberCount)
+	return item, nil
 }
 
 func scanSettings(scanner rowScanner) (Settings, error) {
@@ -808,6 +1245,18 @@ func normalizeIDs(values []string) []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func directPair(a, b string) (string, string) {
+	a = normalizeID(a)
+	b = normalizeID(b)
+	if a == "" || b == "" || a == b {
+		return "", ""
+	}
+	if a < b {
+		return a, b
+	}
+	return b, a
 }
 
 func normalizeID(value string) string {

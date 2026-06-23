@@ -53,6 +53,24 @@ func (s *ConversationServiceServer) RemoveMembers(ctx context.Context, in *pb.Re
 	return l.RemoveMembers(in)
 }
 
+// LeaveConversation lets one member leave a group conversation.
+func (s *ConversationServiceServer) LeaveConversation(ctx context.Context, in *pb.LeaveConversationRequest) (*pb.LeaveConversationResponse, error) {
+	l := logic.NewLeaveConversationLogic(ctx, s.svcCtx)
+	return l.LeaveConversation(in)
+}
+
+// DismissConversation closes a group conversation by owner.
+func (s *ConversationServiceServer) DismissConversation(ctx context.Context, in *pb.DismissConversationRequest) (*pb.DismissConversationResponse, error) {
+	l := logic.NewDismissConversationLogic(ctx, s.svcCtx)
+	return l.DismissConversation(in)
+}
+
+// TransferOwner transfers group ownership to another active member.
+func (s *ConversationServiceServer) TransferOwner(ctx context.Context, in *pb.TransferOwnerRequest) (*pb.TransferOwnerResponse, error) {
+	l := logic.NewTransferOwnerLogic(ctx, s.svcCtx)
+	return l.TransferOwner(in)
+}
+
 // UpdateMemberRole changes one member role.
 func (s *ConversationServiceServer) UpdateMemberRole(ctx context.Context, in *pb.UpdateMemberRoleRequest) (*pb.UpdateMemberRoleResponse, error) {
 	l := logic.NewUpdateMemberRoleLogic(ctx, s.svcCtx)
@@ -63,6 +81,12 @@ func (s *ConversationServiceServer) UpdateMemberRole(ctx context.Context, in *pb
 func (s *ConversationServiceServer) UpdateConversationSettings(ctx context.Context, in *pb.UpdateConversationSettingsRequest) (*pb.UpdateConversationSettingsResponse, error) {
 	l := logic.NewUpdateConversationSettingsLogic(ctx, s.svcCtx)
 	return l.UpdateConversationSettings(in)
+}
+
+// MarkConversationRead advances one member read or delivered cursor.
+func (s *ConversationServiceServer) MarkConversationRead(ctx context.Context, in *pb.MarkConversationReadRequest) (*pb.MarkConversationReadResponse, error) {
+	l := logic.NewMarkConversationReadLogic(ctx, s.svcCtx)
+	return l.MarkConversationRead(in)
 }
 
 // CheckSendPermission checks whether a user can send to a conversation.

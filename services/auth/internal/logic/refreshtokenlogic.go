@@ -2,7 +2,11 @@ package logic
 
 import (
 	"context"
+	"strings"
+	"time"
 
+	"github.com/HappyLadySauce/Beehive-IM/pkg/authjwt"
+	"github.com/HappyLadySauce/Beehive-IM/services/auth/internal/repository"
 	"github.com/HappyLadySauce/Beehive-IM/services/auth/internal/svc"
 	"github.com/HappyLadySauce/Beehive-IM/services/auth/pb"
 
@@ -25,7 +29,30 @@ func NewRefreshTokenLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Refr
 
 // Refresh access token using refresh_token
 func (l *RefreshTokenLogic) RefreshToken(in *pb.RefreshTokenRequest) (*pb.LoginResponse, error) {
-	// todo: add your logic here and delete this line
+	oldToken := strings.TrimSpace(in.GetRefreshToken())
+	if oldToken == "" {
+		return nil, authStatusError(repository.ErrInvalidRefreshToken)
+	}
+	newToken, err := authjwt.RandomToken(32)
+	if err != nil {
+		l.Errorf("generate refresh token failed: error=%v", err)
+		return nil, authStatusError(err)
+	}
+	user, err := l.svcCtx.Auth.RotateRefreshToken(
+		l.ctx,
+		repository.HashRefreshToken(oldToken),
+		repository.HashRefreshToken(newToken),
+		time.Now().UTC().Add(refreshTTL(l.svcCtx)),
+	)
+	if err != nil {
+		l.Infof("refresh token rejected: error=%v", err)
+		return nil, authStatusError(err)
+	}
 
-	return &pb.LoginResponse{}, nil
+	accessToken, expiresIn, err := l.svcCtx.JWT.Sign(userIDString(user), user.Username)
+	if err != nil {
+		l.Errorf("sign access token failed: user_id=%s error=%v", userIDString(user), err)
+		return nil, authStatusError(err)
+	}
+	return loginResponse(accessToken, newToken, expiresIn, user), nil
 }

@@ -4,7 +4,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/logic"
@@ -24,11 +23,7 @@ func syncMessagesHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := logic.NewSyncMessagesLogic(r.Context(), svcCtx)
 		resp, err := l.SyncMessages(&req, r)
 		if err != nil {
-			if errors.Is(err, logic.ErrMissingDebugUserID) {
-				http.Error(w, "Missing X-Debug-User-Id header", http.StatusUnauthorized)
-				return
-			}
-			httpx.ErrorCtx(r.Context(), w, err)
+			writeHandlerError(w, r, err)
 		} else {
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}

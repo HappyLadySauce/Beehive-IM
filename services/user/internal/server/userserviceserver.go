@@ -27,3 +27,8 @@ func (s *UserServiceServer) GetUser(ctx context.Context, in *pb.GetUserRequest) 
 	l := logic.NewGetUserLogic(ctx, s.svcCtx)
 	return l.GetUser(in)
 }
+
+func (s *UserServiceServer) BatchGetUsers(ctx context.Context, in *pb.BatchGetUsersRequest) (*pb.BatchGetUsersResponse, error) {
+	l := logic.NewBatchGetUsersLogic(ctx, s.svcCtx)
+	return l.BatchGetUsers(in)
+}

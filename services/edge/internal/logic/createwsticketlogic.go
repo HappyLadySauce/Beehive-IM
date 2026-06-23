@@ -30,14 +30,17 @@ func NewCreateWsTicketLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Cr
 }
 
 func (l *CreateWsTicketLogic) CreateWsTicket(req *types.TicketRequest, r *http.Request) (resp *types.TicketResponse, err error) {
-	userID := r.Header.Get("X-Debug-User-Id")
-	if userID == "" {
-		return nil, ticket.ErrMissingUserID
+	userID, err := authenticatedUserID(l.svcCtx, r)
+	if err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			return nil, ticket.ErrMissingUserID
+		}
+		return nil, err
 	}
 
 	deviceID := req.DeviceId
 	if deviceID == "" {
-		deviceID = r.Header.Get("X-Debug-Device-Id")
+		deviceID = requestDeviceID(r)
 	}
 
 	t, err := l.svcCtx.Tickets.Issue(userID, deviceID, req.SessionId, r.Header.Get("Origin"))

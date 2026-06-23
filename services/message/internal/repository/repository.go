@@ -75,6 +75,20 @@ type SaveMessageInput struct {
 	RoutingKey     string
 }
 
+type SummaryCursor struct {
+	ConversationID string
+	LastReadSeq    int64
+	VisibleFromSeq int64
+	VisibleToSeq   int64
+}
+
+type ConversationSummary struct {
+	ConversationID string
+	LastMessage    *Message
+	LatestSeq      int64
+	UnreadCount    int64
+}
+
 // Repository owns message facts, receipts, and outbox persistence.
 // Repository 管理消息事实、回执和 outbox 持久化。
 type Repository struct {
@@ -233,7 +247,7 @@ DO UPDATE SET delivered_at = COALESCE(message_receipts.delivered_at, EXCLUDED.de
 	return int32(updated), nil
 }
 
-func (r *Repository) ListMessages(ctx context.Context, conversationID string, afterSeq, beforeSeq int64, direction string, limit int32) ([]Message, int64, error) {
+func (r *Repository) ListMessages(ctx context.Context, conversationID string, afterSeq, beforeSeq int64, direction string, limit int32, visibleFromSeq, visibleToSeq int64) ([]Message, int64, error) {
 	if r == nil || r.db == nil {
 		return nil, 0, errors.New("message repository is not initialized")
 	}
@@ -246,11 +260,17 @@ func (r *Repository) ListMessages(ctx context.Context, conversationID string, af
 	if afterSeq < 0 || beforeSeq < 0 {
 		return nil, 0, fmt.Errorf("%w: message sequence cursor cannot be negative", ErrInvalidArgument)
 	}
+	if visibleFromSeq <= 0 {
+		visibleFromSeq = 1
+	}
+	if visibleToSeq < 0 {
+		return nil, 0, fmt.Errorf("%w: visible_to_seq cannot be negative", ErrInvalidArgument)
+	}
 	if direction != DirectionForward && direction != DirectionBackward {
 		return nil, 0, fmt.Errorf("%w: unsupported direction", ErrInvalidArgument)
 	}
 
-	latestSeq, err := r.LatestSeq(ctx, conversationID)
+	latestSeq, err := r.LatestVisibleSeq(ctx, conversationID, visibleFromSeq, visibleToSeq)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -262,10 +282,12 @@ SELECT message_id, conversation_id, seq, sender_id, device_id, client_msg_id, cl
 FROM messages
 WHERE conversation_id = $1
   AND deleted_at IS NULL
+  AND seq >= $5::bigint
+  AND ($6::bigint <= 0 OR seq <= $6::bigint)
   AND ($2::bigint <= 0 OR seq > $2::bigint)
   AND ($3::bigint <= 0 OR seq < $3::bigint)
 ORDER BY seq ASC
-LIMIT $4`, conversationID, afterSeq, beforeSeq, limit)
+LIMIT $4`, conversationID, afterSeq, beforeSeq, limit, visibleFromSeq, visibleToSeq)
 	} else {
 		rows, err = r.db.Query(ctx, `
 SELECT message_id, conversation_id, seq, sender_id, device_id, client_msg_id, client_seq, content_type, content_json, created_at
@@ -274,12 +296,14 @@ FROM (
     FROM messages
     WHERE conversation_id = $1
       AND deleted_at IS NULL
+      AND seq >= $5::bigint
+      AND ($6::bigint <= 0 OR seq <= $6::bigint)
       AND ($2::bigint <= 0 OR seq > $2::bigint)
       AND ($3::bigint <= 0 OR seq < $3::bigint)
     ORDER BY seq DESC
     LIMIT $4
 ) picked
-ORDER BY seq ASC`, conversationID, afterSeq, beforeSeq, limit)
+ORDER BY seq ASC`, conversationID, afterSeq, beforeSeq, limit, visibleFromSeq, visibleToSeq)
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("query messages: %w", err)
@@ -316,6 +340,82 @@ WHERE conversation_id = $1 AND deleted_at IS NULL`, conversationID).Scan(&seq); 
 		return 0, fmt.Errorf("query latest message sequence: %w", err)
 	}
 	return seq, nil
+}
+
+func (r *Repository) LatestVisibleSeq(ctx context.Context, conversationID string, visibleFromSeq, visibleToSeq int64) (int64, error) {
+	if r == nil || r.db == nil {
+		return 0, errors.New("message repository is not initialized")
+	}
+	conversationID = normalizeID(conversationID)
+	if conversationID == "" {
+		return 0, fmt.Errorf("%w: conversation_id is required", ErrInvalidArgument)
+	}
+	if visibleFromSeq <= 0 {
+		visibleFromSeq = 1
+	}
+	var seq int64
+	if err := r.db.QueryRow(ctx, `
+SELECT COALESCE(MAX(seq), 0)
+FROM messages
+WHERE conversation_id = $1
+  AND deleted_at IS NULL
+  AND seq >= $2::bigint
+  AND ($3::bigint <= 0 OR seq <= $3::bigint)`, conversationID, visibleFromSeq, visibleToSeq).Scan(&seq); err != nil {
+		return 0, fmt.Errorf("query latest visible message sequence: %w", err)
+	}
+	return seq, nil
+}
+
+func (r *Repository) GetConversationSummaries(ctx context.Context, cursors []SummaryCursor) ([]ConversationSummary, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("message repository is not initialized")
+	}
+	cursors = normalizeSummaryCursors(cursors)
+	summaries := make([]ConversationSummary, 0, len(cursors))
+	for _, cursor := range cursors {
+		latestSeq, err := r.LatestVisibleSeq(ctx, cursor.ConversationID, cursor.VisibleFromSeq, cursor.VisibleToSeq)
+		if err != nil {
+			return nil, err
+		}
+		var unread int64
+		if err := r.db.QueryRow(ctx, `
+SELECT COUNT(*)
+FROM messages
+WHERE conversation_id = $1
+  AND deleted_at IS NULL
+  AND seq > $2::bigint
+  AND seq >= $3::bigint
+  AND ($4::bigint <= 0 OR seq <= $4::bigint)`,
+			cursor.ConversationID,
+			cursor.LastReadSeq,
+			cursor.VisibleFromSeq,
+			cursor.VisibleToSeq,
+		).Scan(&unread); err != nil {
+			return nil, fmt.Errorf("query unread count: %w", err)
+		}
+		summary := ConversationSummary{
+			ConversationID: cursor.ConversationID,
+			LatestSeq:      latestSeq,
+			UnreadCount:    unread,
+		}
+		msg, err := scanMessage(r.db.QueryRow(ctx, `
+SELECT message_id, conversation_id, seq, sender_id, device_id, client_msg_id, client_seq, content_type, content_json, created_at
+FROM messages
+WHERE conversation_id = $1
+  AND deleted_at IS NULL
+  AND seq >= $2::bigint
+  AND ($3::bigint <= 0 OR seq <= $3::bigint)
+ORDER BY seq DESC
+LIMIT 1`, cursor.ConversationID, cursor.VisibleFromSeq, cursor.VisibleToSeq))
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("query last message: %w", err)
+		}
+		if err == nil {
+			summary.LastMessage = &msg
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
 }
 
 func (r *Repository) FetchPendingOutbox(ctx context.Context, limit int, lockTTL time.Duration) ([]OutboxEvent, error) {
@@ -518,6 +618,33 @@ func normalizeLimit(limit int32) int32 {
 		return maxListLimit
 	}
 	return limit
+}
+
+func normalizeSummaryCursors(values []SummaryCursor) []SummaryCursor {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]SummaryCursor, 0, len(values))
+	for _, value := range values {
+		conversationID := normalizeID(value.ConversationID)
+		if conversationID == "" {
+			continue
+		}
+		if _, ok := seen[conversationID]; ok {
+			continue
+		}
+		seen[conversationID] = struct{}{}
+		if value.LastReadSeq < 0 {
+			value.LastReadSeq = 0
+		}
+		if value.VisibleFromSeq <= 0 {
+			value.VisibleFromSeq = 1
+		}
+		if value.VisibleToSeq < 0 {
+			value.VisibleToSeq = 0
+		}
+		value.ConversationID = conversationID
+		out = append(out, value)
+	}
+	return out
 }
 
 func CodeForError(err error) string {

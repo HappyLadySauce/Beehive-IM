@@ -24,7 +24,19 @@ func NewLoginLogic(ctx context.Context, svcCtx *svc.ServiceContext) *LoginLogic 
 }
 
 func (l *LoginLogic) Login(in *pb.LoginRequest) (*pb.LoginResponse, error) {
-	// todo: add your logic here and delete this line
+	account, password, err := validateLoginInput(in)
+	if err != nil {
+		return nil, err
+	}
 
-	return &pb.LoginResponse{}, nil
+	user, err := l.svcCtx.Auth.FindLocalUserByAccount(l.ctx, account)
+	if err != nil {
+		l.Infof("login rejected: account=%s", account)
+		return nil, authStatusError(err)
+	}
+	if err := bcryptVerify(user.PasswordHash, password); err != nil {
+		l.Infof("login rejected: account=%s", account)
+		return nil, authStatusError(err)
+	}
+	return issueLoginResponse(l.ctx, l.svcCtx, user)
 }

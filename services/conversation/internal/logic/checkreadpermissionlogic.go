@@ -27,7 +27,8 @@ func NewCheckReadPermissionLogic(ctx context.Context, svcCtx *svc.ServiceContext
 // CheckReadPermission checks whether a user can read a conversation.
 // CheckReadPermission 校验用户是否可读取会话消息。
 func (l *CheckReadPermissionLogic) CheckReadPermission(in *pb.CheckReadPermissionRequest) (*pb.CheckReadPermissionResponse, error) {
-	if err := l.svcCtx.Conversations.CheckReadPermission(l.ctx, in.GetConversationId(), in.GetUserId()); err != nil {
+	permission, err := l.svcCtx.Conversations.CheckReadPermission(l.ctx, in.GetConversationId(), in.GetUserId())
+	if err != nil {
 		if isBusinessError(err) {
 			return &pb.CheckReadPermissionResponse{
 				Allowed:   false,
@@ -39,7 +40,9 @@ func (l *CheckReadPermissionLogic) CheckReadPermission(in *pb.CheckReadPermissio
 		return nil, err
 	}
 	return &pb.CheckReadPermissionResponse{
-		Allowed: true,
-		Message: "allowed",
+		Allowed:        true,
+		Message:        "allowed",
+		VisibleFromSeq: permission.VisibleFromSeq,
+		VisibleToSeq:   permission.VisibleToSeq,
 	}, nil
 }

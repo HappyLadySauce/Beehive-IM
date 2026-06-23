@@ -29,24 +29,20 @@ func NewAckMessagesLogic(ctx context.Context, svcCtx *svc.ServiceContext) *AckMe
 }
 
 func (l *AckMessagesLogic) AckMessages(req *types.AckMessagesRequest, r *http.Request) (resp *types.AckMessagesResponse, err error) {
-	userID, err := debugUserID(r)
-	if err != nil {
-		return nil, err
-	}
-	deviceID, err := debugDeviceID(r)
+	identity, err := requestIdentity(l.svcCtx, r, true)
 	if err != nil {
 		return nil, err
 	}
 
 	result, err := l.svcCtx.Message.AckMessages(l.ctx, &messageservice.AckMessagesRequest{
 		ConversationId: req.ConversationId,
-		UserId:         userID,
-		DeviceId:       deviceID,
+		UserId:         identity.UserID,
+		DeviceId:       identity.DeviceID,
 		AckType:        req.AckType,
 		Seqs:           req.Seqs,
 	})
 	if err != nil {
-		l.Errorf("message ack rpc failed: conversation_id=%s user_id=%s error=%v", req.ConversationId, userID, err)
+		l.Errorf("message ack rpc failed: conversation_id=%s user_id=%s error=%v", req.ConversationId, identity.UserID, err)
 		return nil, err
 	}
 	return &types.AckMessagesResponse{

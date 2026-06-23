@@ -4,12 +4,10 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/logic"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/svc"
-	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/ticket"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/types"
 	"github.com/zeromicro/go-zero/rest/httpx"
 )
@@ -25,11 +23,7 @@ func createWsTicketHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := logic.NewCreateWsTicketLogic(r.Context(), svcCtx)
 		resp, err := l.CreateWsTicket(&req, r)
 		if err != nil {
-			if errors.Is(err, ticket.ErrMissingUserID) {
-				http.Error(w, "Missing X-Debug-User-Id header", http.StatusUnauthorized)
-				return
-			}
-			httpx.ErrorCtx(r.Context(), w, err)
+			writeHandlerError(w, r, err)
 		} else {
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}

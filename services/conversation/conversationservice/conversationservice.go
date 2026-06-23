@@ -23,19 +23,28 @@ type (
 	CheckSendPermissionRequest         = pb.CheckSendPermissionRequest
 	CheckSendPermissionResponse        = pb.CheckSendPermissionResponse
 	Conversation                       = pb.Conversation
+	ConversationListItem               = pb.ConversationListItem
 	ConversationMember                 = pb.ConversationMember
 	ConversationSettings               = pb.ConversationSettings
 	CreateConversationRequest          = pb.CreateConversationRequest
 	CreateConversationResponse         = pb.CreateConversationResponse
+	DismissConversationRequest         = pb.DismissConversationRequest
+	DismissConversationResponse        = pb.DismissConversationResponse
 	GetConversationRequest             = pb.GetConversationRequest
 	GetConversationResponse            = pb.GetConversationResponse
+	LeaveConversationRequest           = pb.LeaveConversationRequest
+	LeaveConversationResponse          = pb.LeaveConversationResponse
 	ListConversationsRequest           = pb.ListConversationsRequest
 	ListConversationsResponse          = pb.ListConversationsResponse
+	MarkConversationReadRequest        = pb.MarkConversationReadRequest
+	MarkConversationReadResponse       = pb.MarkConversationReadResponse
 	MemberInput                        = pb.MemberInput
 	RemoveMembersRequest               = pb.RemoveMembersRequest
 	RemoveMembersResponse              = pb.RemoveMembersResponse
 	ResolveMessageRecipientsRequest    = pb.ResolveMessageRecipientsRequest
 	ResolveMessageRecipientsResponse   = pb.ResolveMessageRecipientsResponse
+	TransferOwnerRequest               = pb.TransferOwnerRequest
+	TransferOwnerResponse              = pb.TransferOwnerResponse
 	UpdateConversationSettingsRequest  = pb.UpdateConversationSettingsRequest
 	UpdateConversationSettingsResponse = pb.UpdateConversationSettingsResponse
 	UpdateMemberRoleRequest            = pb.UpdateMemberRoleRequest
@@ -52,10 +61,18 @@ type (
 		AddMembers(ctx context.Context, in *AddMembersRequest, opts ...grpc.CallOption) (*AddMembersResponse, error)
 		// RemoveMembers marks members as removed from a conversation.
 		RemoveMembers(ctx context.Context, in *RemoveMembersRequest, opts ...grpc.CallOption) (*RemoveMembersResponse, error)
+		// LeaveConversation lets one member leave a group conversation.
+		LeaveConversation(ctx context.Context, in *LeaveConversationRequest, opts ...grpc.CallOption) (*LeaveConversationResponse, error)
+		// DismissConversation closes a group conversation by owner.
+		DismissConversation(ctx context.Context, in *DismissConversationRequest, opts ...grpc.CallOption) (*DismissConversationResponse, error)
+		// TransferOwner transfers group ownership to another active member.
+		TransferOwner(ctx context.Context, in *TransferOwnerRequest, opts ...grpc.CallOption) (*TransferOwnerResponse, error)
 		// UpdateMemberRole changes one member role.
 		UpdateMemberRole(ctx context.Context, in *UpdateMemberRoleRequest, opts ...grpc.CallOption) (*UpdateMemberRoleResponse, error)
 		// UpdateConversationSettings updates settings owned by one user.
 		UpdateConversationSettings(ctx context.Context, in *UpdateConversationSettingsRequest, opts ...grpc.CallOption) (*UpdateConversationSettingsResponse, error)
+		// MarkConversationRead advances one member read or delivered cursor.
+		MarkConversationRead(ctx context.Context, in *MarkConversationReadRequest, opts ...grpc.CallOption) (*MarkConversationReadResponse, error)
 		// CheckSendPermission checks whether a user can send to a conversation.
 		CheckSendPermission(ctx context.Context, in *CheckSendPermissionRequest, opts ...grpc.CallOption) (*CheckSendPermissionResponse, error)
 		// CheckReadPermission checks whether a user can read a conversation.
@@ -107,6 +124,24 @@ func (m *defaultConversationService) RemoveMembers(ctx context.Context, in *Remo
 	return client.RemoveMembers(ctx, in, opts...)
 }
 
+// LeaveConversation lets one member leave a group conversation.
+func (m *defaultConversationService) LeaveConversation(ctx context.Context, in *LeaveConversationRequest, opts ...grpc.CallOption) (*LeaveConversationResponse, error) {
+	client := pb.NewConversationServiceClient(m.cli.Conn())
+	return client.LeaveConversation(ctx, in, opts...)
+}
+
+// DismissConversation closes a group conversation by owner.
+func (m *defaultConversationService) DismissConversation(ctx context.Context, in *DismissConversationRequest, opts ...grpc.CallOption) (*DismissConversationResponse, error) {
+	client := pb.NewConversationServiceClient(m.cli.Conn())
+	return client.DismissConversation(ctx, in, opts...)
+}
+
+// TransferOwner transfers group ownership to another active member.
+func (m *defaultConversationService) TransferOwner(ctx context.Context, in *TransferOwnerRequest, opts ...grpc.CallOption) (*TransferOwnerResponse, error) {
+	client := pb.NewConversationServiceClient(m.cli.Conn())
+	return client.TransferOwner(ctx, in, opts...)
+}
+
 // UpdateMemberRole changes one member role.
 func (m *defaultConversationService) UpdateMemberRole(ctx context.Context, in *UpdateMemberRoleRequest, opts ...grpc.CallOption) (*UpdateMemberRoleResponse, error) {
 	client := pb.NewConversationServiceClient(m.cli.Conn())
@@ -117,6 +152,12 @@ func (m *defaultConversationService) UpdateMemberRole(ctx context.Context, in *U
 func (m *defaultConversationService) UpdateConversationSettings(ctx context.Context, in *UpdateConversationSettingsRequest, opts ...grpc.CallOption) (*UpdateConversationSettingsResponse, error) {
 	client := pb.NewConversationServiceClient(m.cli.Conn())
 	return client.UpdateConversationSettings(ctx, in, opts...)
+}
+
+// MarkConversationRead advances one member read or delivered cursor.
+func (m *defaultConversationService) MarkConversationRead(ctx context.Context, in *MarkConversationReadRequest, opts ...grpc.CallOption) (*MarkConversationReadResponse, error) {
+	client := pb.NewConversationServiceClient(m.cli.Conn())
+	return client.MarkConversationRead(ctx, in, opts...)
 }
 
 // CheckSendPermission checks whether a user can send to a conversation.

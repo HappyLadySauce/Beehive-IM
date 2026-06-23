@@ -20,9 +20,84 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: healthzHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodPost,
+				Path:    "/v1/auth/login",
+				Handler: loginHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/auth/logout",
+				Handler: logoutHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/auth/refresh",
+				Handler: refreshTokenHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/auth/register",
+				Handler: registerHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/v1/conversations",
+				Handler: listConversationsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/v1/conversations/:conversation_id",
+				Handler: getConversationHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/conversations/:conversation_id/dismiss",
+				Handler: dismissConversationHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/conversations/:conversation_id/leave",
+				Handler: leaveConversationHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/conversations/:conversation_id/members",
+				Handler: addConversationMembersHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/v1/conversations/:conversation_id/members/:user_id",
+				Handler: removeConversationMemberHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPatch,
+				Path:    "/v1/conversations/:conversation_id/members/:user_id/role",
+				Handler: updateMemberRoleHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
 				Path:    "/v1/conversations/:conversation_id/messages",
 				Handler: listMessagesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPatch,
+				Path:    "/v1/conversations/:conversation_id/settings",
+				Handler: updateConversationSettingsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/conversations/:conversation_id/transfer-owner",
+				Handler: transferOwnerHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/conversations/direct",
+				Handler: createDirectConversationHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/v1/conversations/group",
+				Handler: createGroupConversationHandler(serverCtx),
 			},
 			{
 				Method:  http.MethodPost,

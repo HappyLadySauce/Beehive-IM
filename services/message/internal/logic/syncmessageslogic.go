@@ -61,6 +61,8 @@ func (l *SyncMessagesLogic) SyncMessages(in *pb.SyncMessagesRequest) (*pb.SyncMe
 			0,
 			repository.DirectionForward,
 			in.GetLimitPerConversation(),
+			permission.GetVisibleFromSeq(),
+			permission.GetVisibleToSeq(),
 		)
 		if err != nil {
 			if isBusinessError(err) {

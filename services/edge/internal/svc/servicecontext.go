@@ -7,6 +7,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/HappyLadySauce/Beehive-IM/pkg/authjwt"
+	"github.com/HappyLadySauce/Beehive-IM/services/auth/authservice"
+	"github.com/HappyLadySauce/Beehive-IM/services/conversation/conversationservice"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/config"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/presence"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/push"
@@ -16,19 +19,24 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/services/gateway/gatewayservice"
 	"github.com/HappyLadySauce/Beehive-IM/services/message/messageservice"
 	"github.com/HappyLadySauce/Beehive-IM/services/presence/presenceservice"
+	"github.com/HappyLadySauce/Beehive-IM/services/user/userservice"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/zrpc"
 )
 
 type ServiceContext struct {
-	Config   config.Config
-	Gateway  gatewayservice.GatewayService
-	Message  messageservice.MessageService
-	Presence presence.Client
-	Tickets  *ticket.Store
-	Proxy    *wsproxy.Proxy
-	Router   *upstream.Router
-	Push     *push.Consumer
+	Config       config.Config
+	Auth         authservice.AuthService
+	Gateway      gatewayservice.GatewayService
+	Message      messageservice.MessageService
+	Conversation conversationservice.ConversationService
+	User         userservice.UserService
+	JWT          *authjwt.Manager
+	Presence     presence.Client
+	Tickets      *ticket.Store
+	Proxy        *wsproxy.Proxy
+	Router       *upstream.Router
+	Push         *push.Consumer
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -38,8 +46,15 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 
 	tickets := ticket.NewStore(ttl)
+	jwtManager, err := authjwt.NewManager(c.JWT)
+	if err != nil {
+		panic(err)
+	}
+	auth := authservice.NewAuthService(zrpc.MustNewClient(c.Auth))
 	gateway := gatewayservice.NewGatewayService(zrpc.MustNewClient(c.Gateway))
 	message := messageservice.NewMessageService(zrpc.MustNewClient(c.Message))
+	conversation := conversationservice.NewConversationService(zrpc.MustNewClient(c.Conversation))
+	user := userservice.NewUserService(zrpc.MustNewClient(c.User))
 	etcdConfig := c.Registry
 	if etcdConfig.Env == "" {
 		etcdConfig.Env = c.Env
@@ -88,14 +103,18 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	pushConsumer.Start(context.Background())
 
 	return &ServiceContext{
-		Config:   c,
-		Gateway:  gateway,
-		Message:  message,
-		Presence: presenceClient,
-		Tickets:  tickets,
-		Proxy:    proxy,
-		Router:   router,
-		Push:     pushConsumer,
+		Config:       c,
+		Auth:         auth,
+		Gateway:      gateway,
+		Message:      message,
+		Conversation: conversation,
+		User:         user,
+		JWT:          jwtManager,
+		Presence:     presenceClient,
+		Tickets:      tickets,
+		Proxy:        proxy,
+		Router:       router,
+		Push:         pushConsumer,
 	}
 }
 
