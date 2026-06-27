@@ -40,7 +40,15 @@ func (l *AckMessagesLogic) AckMessages(in *pb.AckMessagesRequest) (*pb.AckMessag
 		return ackRejected(permission.GetErrorCode(), permission.GetMessage()), nil
 	}
 
-	updated, err := l.svcCtx.Messages.AckMessages(l.ctx, in.GetConversationId(), in.GetUserId(), in.GetAckType(), in.GetSeqs())
+	ack, err := l.svcCtx.Messages.AckMessages(
+		l.ctx,
+		in.GetConversationId(),
+		in.GetUserId(),
+		in.GetAckType(),
+		in.GetSeqs(),
+		permission.GetVisibleFromSeq(),
+		permission.GetVisibleToSeq(),
+	)
 	if err != nil {
 		if isBusinessError(err) {
 			return ackRejected(repository.CodeForError(err), err.Error()), nil
@@ -48,15 +56,15 @@ func (l *AckMessagesLogic) AckMessages(in *pb.AckMessagesRequest) (*pb.AckMessag
 		l.Errorf("ack messages failed: conversation_id=%s user_id=%s ack_type=%s error=%v", in.GetConversationId(), in.GetUserId(), in.GetAckType(), err)
 		return nil, err
 	}
-	if maxSeq := maxPositiveSeq(in.GetSeqs()); maxSeq > 0 {
+	if ack.MaxSeq > 0 {
 		marked, err := l.svcCtx.Conversation.MarkConversationRead(l.ctx, &conversationservice.MarkConversationReadRequest{
 			ConversationId: in.GetConversationId(),
 			UserId:         in.GetUserId(),
 			CursorType:     in.GetAckType(),
-			Seq:            maxSeq,
+			Seq:            ack.MaxSeq,
 		})
 		if err != nil {
-			l.Errorf("mark conversation read rpc failed: conversation_id=%s user_id=%s ack_type=%s seq=%d error=%v", in.GetConversationId(), in.GetUserId(), in.GetAckType(), maxSeq, err)
+			l.Errorf("mark conversation read rpc failed: conversation_id=%s user_id=%s ack_type=%s seq=%d error=%v", in.GetConversationId(), in.GetUserId(), in.GetAckType(), ack.MaxSeq, err)
 			return nil, err
 		}
 		if !marked.GetAccepted() {
@@ -66,16 +74,6 @@ func (l *AckMessagesLogic) AckMessages(in *pb.AckMessagesRequest) (*pb.AckMessag
 	return &pb.AckMessagesResponse{
 		Accepted: true,
 		Message:  "acknowledged",
-		Updated:  updated,
+		Updated:  ack.Updated,
 	}, nil
-}
-
-func maxPositiveSeq(seqs []int64) int64 {
-	var max int64
-	for _, seq := range seqs {
-		if seq > max {
-			max = seq
-		}
-	}
-	return max
 }

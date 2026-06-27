@@ -13,6 +13,7 @@ import (
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/config"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/presence"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/push"
+	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/security"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/ticket"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/upstream"
 	"github.com/HappyLadySauce/Beehive-IM/services/edge/internal/wsproxy"
@@ -50,7 +51,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		panic(err)
 	}
-	auth := authservice.NewAuthService(zrpc.MustNewClient(c.Auth))
+	auth := authservice.NewAuthService(zrpc.MustNewClient(c.Auth.RpcClientConf))
 	gateway := gatewayservice.NewGatewayService(zrpc.MustNewClient(c.Gateway))
 	message := messageservice.NewMessageService(zrpc.MustNewClient(c.Message))
 	conversation := conversationservice.NewConversationService(zrpc.MustNewClient(c.Conversation))
@@ -74,6 +75,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		presenceservice.NewPresenceService(zrpc.MustNewClient(c.Presence)),
 		c.PresenceTTLSeconds,
 	)
+	originChecker := security.NewOriginChecker(c.Security.AllowedOrigins)
 	proxy := wsproxy.NewProxy(wsproxy.Config{
 		EdgeID:          c.EdgeID,
 		WriteBufferSize: c.WebSocket.WriteBufferSize,
@@ -81,6 +83,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 		Tickets:         tickets,
 		GatewayRouter:   router,
 		Presence:        presenceClient,
+		OriginChecker:   originChecker,
 		Recovery: wsproxy.RecoveryConfig{
 			MaxAttempts: c.GatewayRecovery.MaxAttempts,
 			Window:      durationFromMs(c.GatewayRecovery.WindowMs, 5*time.Second),

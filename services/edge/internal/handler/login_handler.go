@@ -25,6 +25,8 @@ func loginHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		if err != nil {
 			writeHandlerError(w, r, err)
 		} else {
+			setRefreshCookie(w, svcCtx.Config.Env, svcCtx.Config.Auth.RefreshCookie, resp.RefreshToken)
+			resp.RefreshToken = ""
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}
 	}

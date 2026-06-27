@@ -41,6 +41,7 @@ type Proxy struct {
 	presence        presence.Client
 	hub             *Hub
 	recovery        RecoveryConfig
+	originChecker   OriginChecker
 	upgrader        websocket.Upgrader
 }
 
@@ -53,11 +54,18 @@ type Config struct {
 	GatewayRouter   GatewayRouter
 	Presence        presence.Client
 	Recovery        RecoveryConfig
+	OriginChecker   OriginChecker
 }
 
 type GatewayRouter interface {
 	Pick(ctx context.Context, excludedGatewayIDs ...string) (gatewayservice.GatewayService, string, error)
 	MarkFailed(gatewayID string)
+}
+
+// OriginChecker validates WebSocket Origin values before upgrade.
+// OriginChecker 在 WebSocket 升级前校验 Origin。
+type OriginChecker interface {
+	Allowed(origin string) bool
 }
 
 type clientEnvelope struct {
@@ -123,10 +131,11 @@ func NewProxy(c Config) *Proxy {
 		presence:        c.Presence,
 		hub:             NewHub(),
 		recovery:        recovery,
+		originChecker:   c.OriginChecker,
 		upgrader: websocket.Upgrader{
 			Subprotocols: []string{"beehive.im.v1"},
 			CheckOrigin: func(r *http.Request) bool {
-				return true
+				return c.OriginChecker != nil && c.OriginChecker.Allowed(r.Header.Get("Origin"))
 			},
 		},
 	}
@@ -137,11 +146,17 @@ func NewProxy(c Config) *Proxy {
 // ServeHTTP 处理 Edge WebSocket 升级入口：校验 ticket、绑定上游 Gateway 会话，
 // 再启动三协程双向代理，直至连接断开。
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	origin := r.Header.Get("Origin")
+	if p.originChecker == nil || !p.originChecker.Allowed(origin) {
+		writeHTTPError(w, http.StatusForbidden, "INVALID_ORIGIN", "Origin is not allowed")
+		return
+	}
+
 	// Phase 1: one-time ticket consumption (binds session/user/device, checks Origin).
 	// 阶段 1：一次性消费 ticket（绑定 session/user/device，并校验 Origin）。
-	t, err := p.tickets.Consume(r.URL.Query().Get("ticket"), r.Header.Get("Origin"))
+	t, err := p.tickets.Consume(r.URL.Query().Get("ticket"), origin)
 	if err != nil {
-		http.Error(w, "Invalid websocket ticket", http.StatusUnauthorized)
+		writeHTTPError(w, http.StatusUnauthorized, "INVALID_WS_TICKET", "Invalid websocket ticket")
 		return
 	}
 
@@ -149,7 +164,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 阶段 2：为本 WebSocket 连接分配唯一 conn_id。
 	connID := "conn-" + randomToken(12)
 	if p.gatewayRouter == nil {
-		http.Error(w, "Gateway client is unavailable", http.StatusServiceUnavailable)
+		writeHTTPError(w, http.StatusServiceUnavailable, "GATEWAY_UNAVAILABLE", "Gateway client is unavailable")
 		return
 	}
 
@@ -158,16 +173,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 阶段 3：在 HTTP 升级前选择 Gateway 并完成 Attach；上游准备必须在仍为 HTTP 响应时完成。
 	endpoint, err := p.pickGateway(r.Context())
 	if err != nil {
-		http.Error(w, "Gateway selection failed", http.StatusServiceUnavailable)
+		writeHTTPError(w, http.StatusServiceUnavailable, "NO_GATEWAY_AVAILABLE", "Gateway selection failed")
 		return
 	}
 	attach, err := p.attach(r.Context(), endpoint.gateway, t, connID)
 	if err != nil {
-		http.Error(w, "Gateway attach failed", http.StatusServiceUnavailable)
+		writeHTTPError(w, http.StatusServiceUnavailable, "GATEWAY_ATTACH_FAILED", "Gateway attach failed")
 		return
 	}
 	if !attach.GetAccepted() {
-		http.Error(w, attach.GetErrorCode(), http.StatusServiceUnavailable)
+		writeHTTPError(w, http.StatusServiceUnavailable, attach.GetErrorCode(), attach.GetMessage())
 		return
 	}
 	endpoint.gatewayID = gatewayID(attach.GetGatewayId(), endpoint.gatewayID)
@@ -183,7 +198,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		GatewayID: endpoint.gatewayID,
 	}); err != nil {
 		p.closeGatewaySession(endpoint.gateway, t, connID, "presence_upsert_failed")
-		http.Error(w, "Presence upsert failed", http.StatusServiceUnavailable)
+		writeHTTPError(w, http.StatusServiceUnavailable, "PRESENCE_UPSERT_FAILED", "Presence upsert failed")
 		return
 	}
 
@@ -257,6 +272,22 @@ func (p *Proxy) Deliver(ctx context.Context, target PushTarget, payload []byte) 
 
 func (p *Proxy) MigrateGateway(gatewayID, reason string) int {
 	return p.hub.MigrateGateway(gatewayID, reason)
+}
+
+func writeHTTPError(w http.ResponseWriter, status int, code, message string) {
+	if code == "" {
+		code = "REQUEST_FAILED"
+	}
+	if message == "" {
+		message = "Request failed"
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":    false,
+		"error_code": code,
+		"message":    message,
+	})
 }
 
 func (p *Proxy) pickGateway(ctx context.Context, excludedGatewayIDs ...string) (upstreamEndpoint, error) {

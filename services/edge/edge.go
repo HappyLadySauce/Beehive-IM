@@ -25,6 +25,7 @@ func main() {
 
 	server := rest.MustNewServer(c.RestConf)
 	defer server.Stop()
+	server.Use(rest.ToMiddleware(handler.NewCORSMiddleware(c.Security)))
 
 	ctx := svc.NewServiceContext(c)
 	defer ctx.Close()

@@ -42,16 +42,15 @@ type LoginRequest {
 }
 
 type RefreshTokenRequest {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"-"`
 }
 
 type LogoutRequest {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"-"`
 }
 
 type AuthTokenResponse {
 	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
 	ExpiresIn    int64        `json:"expires_in"`
 	TokenType    string       `json:"token_type"`
 	User         AuthUserInfo `json:"user"`

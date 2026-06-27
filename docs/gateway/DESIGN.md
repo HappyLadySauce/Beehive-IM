@@ -52,7 +52,9 @@ Client -> Edge(public WSS) -> Gateway(internal upstream)
 |------|----------|
 | Edge HTTP API | 已通过 `api/edge.api` 生成 `services/edge`，提供 health、auth、ws ticket、conversation、message sync/list/ack 等 Web API |
 | WebSocket ticket | Edge 本地内存存储，TTL 默认 30s，单次消费，绑定 `user_id`、`device_id`、`session_id`、Origin |
-| Auth/JWT | Edge 已代理 `/v1/auth/register`、`/v1/auth/login`、`/v1/auth/refresh`、`/v1/auth/logout`，默认使用 Bearer JWT 保护 ws ticket、message 和 conversation API |
+| Auth/JWT | Edge 已代理 `/v1/auth/register`、`/v1/auth/login`、`/v1/auth/refresh`、`/v1/auth/logout`，公网 refresh token 使用 HttpOnly Cookie，默认使用 Bearer JWT 保护 ws ticket、message 和 conversation API |
+| CORS / Origin | Edge 已统一配置 `Security.AllowedOrigins`，HTTP CORS 和 WebSocket Origin 共用白名单；未配置或不匹配时拒绝跨域请求和 WS upgrade |
+| HTTP 错误 | Edge transport/auth/parse/rpc 异常统一返回 `{"success":false,"error_code":"...","message":"..."}` |
 | 开发鉴权 | 仅 `Env=dev/test` 且 `DevAuth.Enabled=true` 时允许 `X-Debug-*` 回退，生产环境必须关闭 |
 | Gateway zRPC | 已通过 `proto/gateway.proto` 生成 `services/gateway`，包含 `Attach`、`Resume`、`CloseSession`、`Stream` |
 | Edge -> Gateway | 已采用 gRPC bidirectional stream 转发 JSON WebSocket 信封 |
@@ -159,10 +161,14 @@ sequenceDiagram
     C->>E: POST /v1/auth/login
     E->>A: internal Auth RPC
     A-->>E: access_token + refresh_token
-    E-->>C: login response
+    E-->>C: access token JSON + HttpOnly refresh cookie
+
+    C->>E: POST /v1/ws/ticket with Bearer access token
+    E->>E: verify Bearer token and Origin allowlist
+    E-->>C: one-time ws_ticket
 
     C->>E: WSS /ws?ticket=...
-    E->>E: verify origin and consume ws_ticket
+    E->>E: verify Origin allowlist and consume Origin-bound ws_ticket
     E->>EC: read Gateway view from Watch cache
     E->>E: select Gateway
     E->>G: internal attach(session_id, auth_context)
@@ -701,8 +707,9 @@ Gateway 从本机 session 中读取 `user_id` 和 `device_id`，客户端不能�
 |----|------|
 | 公网暴露 | 只暴露 Edge/API Gateway；Gateway、Auth gRPC、Presence、Notification、Redis、etcd、RabbitMQ 均为内网 |
 | 传输 | Client -> Edge 使用 HTTPS/WSS；Edge -> Gateway 使用 mTLS |
-| Token 传递 | Web 客户端使用 HTTPS 认证会话换取一次性 `ws_ticket`；生产禁止 query access token |
-| 入口验签 | Edge 在 Upgrade 前校验 Origin、消费 `ws_ticket` 并还原 auth context |
+| Token 传递 | Web 客户端使用 HTTPS 认证会话换取一次性 `ws_ticket`；access token 放 Authorization header，refresh token 只在 HttpOnly Cookie 中，生产禁止 query access token |
+| Origin / CORS | `Security.AllowedOrigins` 必须显式配置真实前端域名；HTTP CORS 和 WS Origin 使用同一白名单 |
+| 入口验签 | Edge 在 Upgrade 前校验 Origin 白名单、消费 Origin-bound `ws_ticket` 并还原 auth context |
 | 内部零信任 | Gateway 校验 Edge mTLS 身份和 auth context |
 | 连接上限 | Edge `max_conn`、Gateway `max_sessions` 双重限制 |
 | 黑名单 | v1.1 支持 `jwt:bl:{jti}` 实现登出后即时失效 |
@@ -723,6 +730,12 @@ Gateway 从本机 session 中读取 `user_id` 和 `device_id`，客户端不能�
 | `config/edge/public_ws_url` | 公网 WebSocket 地址 | `wss://im.example.com/ws` |
 | `config/edge/ws.ping_interval` | 期望客户端 ping 间隔 | `30s` |
 | `config/edge/ws.read_timeout` | 读超时 | `60s` |
+| `Security.AllowedOrigins` | 允许的前端 Origin 白名单；生产必填 | `https://app.example.com` |
+| `Auth.RefreshCookie.Name` | refresh token Cookie 名称 | `refresh_token` |
+| `Auth.RefreshCookie.Path` | Cookie Path | `/v1/auth` |
+| `Auth.RefreshCookie.SameSite` | Cookie SameSite 策略 | `Lax` |
+| `Auth.RefreshCookie.Secure` | 是否强制 Secure；生产必须为 true | `true` |
+| `DevAuth.Enabled` | 是否允许 `X-Debug-*` 身份回退；只允许 dev/test | `false` |
 | `config/edge/ws.ticket_ttl` | WebSocket 一次性 ticket TTL | `30s` |
 | `config/edge/max_conn` | 单实例最大客户端连接数 | `50000` |
 | `config/edge/upstream.connect_timeout` | 连接 Gateway 超时 | `2s` |
@@ -913,6 +926,8 @@ flowchart LR
 |--------|--------------|------|
 | 400 | `INVALID_DEVICE_ID` | device_id 缺失或非法 |
 | 401 | `INVALID_TOKEN` | JWT 无效或过期 |
+| 401 | `MISSING_REFRESH_TOKEN` | refresh token Cookie 缺失 |
+| 401 | `INVALID_WS_TICKET` | ws ticket 缺失、过期、重复使用或 Origin 不匹配 |
 | 403 | `INVALID_ORIGIN` | Origin 不在白名单 |
 | 503 | `NO_GATEWAY_AVAILABLE` | 无健康节点 |
 | 503 | `EDGE_CAPACITY_EXCEEDED` | Edge 连接数已满 |

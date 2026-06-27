@@ -6,7 +6,7 @@
 # 扫描 proto/*.proto，在对应的 services/{name}/ 目录内执行 goctl 生成 zRPC 代码。
 #
 # goctl is run inside services/{name}/ with:
-#   --proto_path=../../proto  (protoc include path for root proto/)
+#   --proto_path=../..  (protoc include path for repository root)
 #   --go_out=. --go-grpc_out=.  (paired with go_package = "./pb" in proto files)
 #
 # Usage / 用法:
@@ -64,7 +64,7 @@ for proto in "${matched[@]}"; do
   (
     cd "$svc_dir"
     goctl rpc protoc "$proto_rel" \
-      --proto_path=../../proto \
+      --proto_path=../.. \
       --go_out=. \
       --go-grpc_out=. \
       --zrpc_out=. \

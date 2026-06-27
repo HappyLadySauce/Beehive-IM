@@ -78,6 +78,29 @@ flowchart TB
 - 消息落库后禁止直接依赖“同步 publish 成功”作为唯一投递路径；必须使用 outbox 或等价可靠发布机制。
 - secret 禁止写入日志、panic、metrics label、URL query 或前端响应。
 
+### 1.4 Web 前端接入安全边界
+
+Web 前端只访问 Edge 公网入口。联调和生产必须遵循以下边界：
+
+| 项 | dev/test | 生产 |
+|----|----------|------|
+| `Security.AllowedOrigins` | 显式配置 `http://localhost:5173`、`http://127.0.0.1:5173` 等本地前端来源 | 必须替换为真实 HTTPS 前端域名；未配置时拒绝跨域和 WS Origin |
+| `DevAuth.Enabled` | 可临时开启 `X-Debug-*` 回退 | 必须关闭 |
+| JWT secret | 可使用本地开发值 | 必须通过 secret 管理下发，禁止提交到仓库 |
+| refresh token | Edge 通过 HttpOnly Cookie 下发 | 必须 `Secure=true`，`SameSite` 按部署域名策略配置 |
+| access token | 前端内存保存并放 `Authorization: Bearer ...` | 禁止 localStorage 长期保存，禁止放入 URL query |
+| 中间件连接 | 可使用 docker compose 本地端点 | PostgreSQL、RabbitMQ、Redis、etcd 必须显式配置地址、账号、TLS/ACL/RBAC |
+
+Edge HTTP transport/auth/parse/rpc 错误统一返回 JSON：
+
+```json
+{
+  "success": false,
+  "error_code": "INVALID_ORIGIN",
+  "message": "Origin is not allowed"
+}
+```
+
 ---
 
 ## 2. 服务模块与接口边界

@@ -23,7 +23,7 @@ type AddConversationMembersRequest struct {
 
 type AuthTokenResponse struct {
 	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
+	RefreshToken string       `json:"-"`
 	ExpiresIn    int64        `json:"expires_in"`
 	TokenType    string       `json:"token_type"`
 	User         AuthUserInfo `json:"user"`
@@ -160,7 +160,7 @@ type LoginRequest struct {
 }
 
 type LogoutRequest struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"-"`
 }
 
 type MemberInput struct {
@@ -182,7 +182,7 @@ type MessageItem struct {
 }
 
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"-"`
 }
 
 type RegisterRequest struct {

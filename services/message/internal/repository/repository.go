@@ -89,6 +89,13 @@ type ConversationSummary struct {
 	UnreadCount    int64
 }
 
+// AckResult describes receipt rows affected and the highest persisted seq.
+// AckResult 描述回执影响行数和最高已持久化序号。
+type AckResult struct {
+	Updated int32
+	MaxSeq  int64
+}
+
 // Repository owns message facts, receipts, and outbox persistence.
 // Repository 管理消息事实、回执和 outbox 持久化。
 type Repository struct {
@@ -193,28 +200,33 @@ VALUES ($1, 'message', $2, 'message.created', $3, $4::jsonb, 'pending')`,
 	return msg, false, nil
 }
 
-func (r *Repository) AckMessages(ctx context.Context, conversationID, userID, ackType string, seqs []int64) (int32, error) {
+func (r *Repository) AckMessages(ctx context.Context, conversationID, userID, ackType string, seqs []int64, visibleFromSeq, visibleToSeq int64) (AckResult, error) {
 	if r == nil || r.db == nil {
-		return 0, errors.New("message repository is not initialized")
+		return AckResult{}, errors.New("message repository is not initialized")
 	}
 	conversationID = normalizeID(conversationID)
 	userID = normalizeID(userID)
 	ackType = strings.ToLower(strings.TrimSpace(ackType))
 	seqs = normalizeSeqs(seqs)
 	if conversationID == "" || userID == "" || len(seqs) == 0 {
-		return 0, fmt.Errorf("%w: conversation_id, user_id and seqs are required", ErrInvalidArgument)
+		return AckResult{}, fmt.Errorf("%w: conversation_id, user_id and seqs are required", ErrInvalidArgument)
 	}
 	if ackType != AckTypeDelivered && ackType != AckTypeRead {
-		return 0, fmt.Errorf("%w: unsupported ack_type", ErrInvalidArgument)
+		return AckResult{}, fmt.Errorf("%w: unsupported ack_type", ErrInvalidArgument)
+	}
+	visibleFromSeq, visibleToSeq, err := normalizeVisibleSeqRange(visibleFromSeq, visibleToSeq)
+	if err != nil {
+		return AckResult{}, err
 	}
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("begin ack transaction: %w", err)
+		return AckResult{}, fmt.Errorf("begin ack transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
 	var updated int64
+	var maxAckedSeq int64
 	for _, seq := range seqs {
 		var tag pgconnTag
 		switch ackType {
@@ -223,28 +235,51 @@ func (r *Repository) AckMessages(ctx context.Context, conversationID, userID, ac
 INSERT INTO message_receipts (conversation_id, user_id, message_seq, delivered_at)
 SELECT $1::varchar, $2::varchar, m.seq, NOW()
 FROM messages m
-WHERE m.conversation_id = $1::varchar AND m.seq = $3::bigint
+WHERE m.conversation_id = $1::varchar
+  AND m.seq = $3::bigint
+  AND m.seq >= $4::bigint
+  AND ($5::bigint <= 0 OR m.seq <= $5::bigint)
 ON CONFLICT (conversation_id, user_id, message_seq)
-DO UPDATE SET delivered_at = COALESCE(message_receipts.delivered_at, EXCLUDED.delivered_at)`, conversationID, userID, seq)
+DO UPDATE SET delivered_at = COALESCE(message_receipts.delivered_at, EXCLUDED.delivered_at)`, conversationID, userID, seq, visibleFromSeq, visibleToSeq)
 		case AckTypeRead:
 			tag, err = tx.Exec(ctx, `
 INSERT INTO message_receipts (conversation_id, user_id, message_seq, delivered_at, read_at)
 SELECT $1::varchar, $2::varchar, m.seq, NOW(), NOW()
 FROM messages m
-WHERE m.conversation_id = $1::varchar AND m.seq = $3::bigint
+WHERE m.conversation_id = $1::varchar
+  AND m.seq = $3::bigint
+  AND m.seq >= $4::bigint
+  AND ($5::bigint <= 0 OR m.seq <= $5::bigint)
 ON CONFLICT (conversation_id, user_id, message_seq)
 DO UPDATE SET delivered_at = COALESCE(message_receipts.delivered_at, EXCLUDED.delivered_at),
-              read_at = COALESCE(message_receipts.read_at, EXCLUDED.read_at)`, conversationID, userID, seq)
+              read_at = COALESCE(message_receipts.read_at, EXCLUDED.read_at)`, conversationID, userID, seq, visibleFromSeq, visibleToSeq)
 		}
 		if err != nil {
-			return 0, fmt.Errorf("upsert message receipt: %w", err)
+			return AckResult{}, fmt.Errorf("upsert message receipt: %w", err)
 		}
-		updated += tag.RowsAffected()
+		if tag.RowsAffected() > 0 {
+			updated += tag.RowsAffected()
+			if seq > maxAckedSeq {
+				maxAckedSeq = seq
+			}
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit ack transaction: %w", err)
+		return AckResult{}, fmt.Errorf("commit ack transaction: %w", err)
 	}
-	return int32(updated), nil
+	return AckResult{Updated: int32(updated), MaxSeq: maxAckedSeq}, nil
+}
+
+// normalizeVisibleSeqRange returns the inclusive readable sequence range.
+// normalizeVisibleSeqRange 返回可读消息序号的闭区间。
+func normalizeVisibleSeqRange(visibleFromSeq, visibleToSeq int64) (int64, int64, error) {
+	if visibleFromSeq <= 0 {
+		visibleFromSeq = 1
+	}
+	if visibleToSeq < 0 {
+		return 0, 0, fmt.Errorf("%w: visible_to_seq cannot be negative", ErrInvalidArgument)
+	}
+	return visibleFromSeq, visibleToSeq, nil
 }
 
 func (r *Repository) ListMessages(ctx context.Context, conversationID string, afterSeq, beforeSeq int64, direction string, limit int32, visibleFromSeq, visibleToSeq int64) ([]Message, int64, error) {

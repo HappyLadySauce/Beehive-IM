@@ -12,6 +12,7 @@ import (
 )
 
 func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
+	installHTTPErrorHandler()
 	server.AddRoutes(
 		[]rest.Route{
 			{

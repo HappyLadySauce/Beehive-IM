@@ -41,6 +41,28 @@ func TestNormalizeLimitCapsMessagePage(t *testing.T) {
 	}
 }
 
+func TestNormalizeVisibleSeqRange(t *testing.T) {
+	from, to, err := normalizeVisibleSeqRange(0, 0)
+	if err != nil {
+		t.Fatalf("normalizeVisibleSeqRange() error = %v", err)
+	}
+	if from != 1 || to != 0 {
+		t.Fatalf("range = %d,%d, want 1,0", from, to)
+	}
+
+	from, to, err = normalizeVisibleSeqRange(5, 9)
+	if err != nil {
+		t.Fatalf("normalizeVisibleSeqRange() error = %v", err)
+	}
+	if from != 5 || to != 9 {
+		t.Fatalf("range = %d,%d, want 5,9", from, to)
+	}
+
+	if _, _, err = normalizeVisibleSeqRange(1, -1); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("normalizeVisibleSeqRange() error = %v, want ErrInvalidArgument", err)
+	}
+}
+
 func TestCodeForErrorMapsInvalidArgument(t *testing.T) {
 	err := errors.Join(ErrInvalidArgument, errors.New("field is required"))
 	if got := CodeForError(err); got != CodeInvalidArgument {

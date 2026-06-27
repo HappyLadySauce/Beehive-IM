@@ -2,7 +2,7 @@
 # Beehive-IM RPC 代码生成入口（Windows PowerShell）
 #
 # goctl is run inside services/{name}/ with:
-#   --proto_path=../../proto  (protoc include path for root proto/)
+#   --proto_path=../..  (protoc include path for repository root)
 #   --go_out=. --go-grpc_out=.  (paired with go_package = "./pb" in proto files)
 #
 # Usage / 用法:
@@ -57,7 +57,7 @@ foreach ($proto in $matched) {
     Push-Location $svcDir
     try {
         & goctl rpc protoc $protoRel `
-            --proto_path=../../proto `
+            --proto_path=../.. `
             --go_out=. `
             --go-grpc_out=. `
             --zrpc_out=. `

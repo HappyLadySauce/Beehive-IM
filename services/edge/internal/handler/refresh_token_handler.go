@@ -19,12 +19,20 @@ func refreshTokenHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
+		refreshToken, ok := refreshTokenFromCookie(r, svcCtx.Config.Auth.RefreshCookie)
+		if !ok {
+			writeJSONError(w, r, http.StatusUnauthorized, "MISSING_REFRESH_TOKEN", "Missing refresh token")
+			return
+		}
+		req.RefreshToken = refreshToken
 
 		l := logic.NewRefreshTokenLogic(r.Context(), svcCtx)
 		resp, err := l.RefreshToken(&req)
 		if err != nil {
 			writeHandlerError(w, r, err)
 		} else {
+			setRefreshCookie(w, svcCtx.Config.Env, svcCtx.Config.Auth.RefreshCookie, resp.RefreshToken)
+			resp.RefreshToken = ""
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}
 	}

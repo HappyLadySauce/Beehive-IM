@@ -40,13 +40,13 @@ func TestStoreConsumeExpiredTicket(t *testing.T) {
 		return now
 	}
 
-	issued, err := store.Issue("user-1", "", "", "")
+	issued, err := store.Issue("user-1", "", "", "https://app.example")
 	if err != nil {
 		t.Fatalf("Issue() error = %v", err)
 	}
 
 	now = base.Add(31 * time.Second)
-	_, err = store.Consume(issued.Value, "")
+	_, err = store.Consume(issued.Value, "https://app.example")
 	if !errors.Is(err, ErrTicketExpired) {
 		t.Fatalf("Consume() error = %v, want %v", err, ErrTicketExpired)
 	}
@@ -75,6 +75,14 @@ func TestStoreConsumeRejectsMissingBoundOrigin(t *testing.T) {
 	_, err = store.Consume(issued.Value, "")
 	if !errors.Is(err, ErrOriginMismatch) {
 		t.Fatalf("Consume() error = %v, want %v", err, ErrOriginMismatch)
+	}
+}
+
+func TestStoreIssueRequiresOrigin(t *testing.T) {
+	store := NewStore(30 * time.Second)
+	_, err := store.Issue("user-1", "", "", "")
+	if !errors.Is(err, ErrMissingOrigin) {
+		t.Fatalf("Issue() error = %v, want %v", err, ErrMissingOrigin)
 	}
 }
 

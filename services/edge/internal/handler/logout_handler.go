@@ -19,12 +19,19 @@ func logoutHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.ErrorCtx(r.Context(), w, err)
 			return
 		}
+		refreshToken, ok := refreshTokenFromCookie(r, svcCtx.Config.Auth.RefreshCookie)
+		if !ok {
+			writeJSONError(w, r, http.StatusUnauthorized, "MISSING_REFRESH_TOKEN", "Missing refresh token")
+			return
+		}
+		req.RefreshToken = refreshToken
 
 		l := logic.NewLogoutLogic(r.Context(), svcCtx)
 		resp, err := l.Logout(&req)
 		if err != nil {
 			writeHandlerError(w, r, err)
 		} else {
+			clearRefreshCookie(w, svcCtx.Config.Env, svcCtx.Config.Auth.RefreshCookie)
 			httpx.OkJsonCtx(r.Context(), w, resp)
 		}
 	}

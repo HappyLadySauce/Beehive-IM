@@ -21,13 +21,14 @@ type Config struct {
 	WebSocket          WebSocketConf
 	Gateway            zrpc.RpcClientConf
 	GatewayRecovery    GatewayRecoveryConf
-	Auth               zrpc.RpcClientConf
+	Auth               AuthConf
 	Presence           zrpc.RpcClientConf
 	Message            zrpc.RpcClientConf
 	Conversation       zrpc.RpcClientConf
 	User               zrpc.RpcClientConf
 	JWT                authjwt.Config
 	DevAuth            DevAuthConf
+	Security           SecurityConf
 	Registry           pkgetcd.Config
 	RabbitMQ           pkgrabbitmq.Config
 }
@@ -48,6 +49,25 @@ type GatewayRecoveryConf struct {
 	IsolationMs int64   `json:",default=10000"`
 }
 
+type AuthConf struct {
+	zrpc.RpcClientConf
+	RefreshCookie RefreshCookieConf
+}
+
+type RefreshCookieConf struct {
+	Name                string `json:",default=refresh_token"`
+	Path                string `json:",default=/v1/auth"`
+	Domain              string `json:",optional"`
+	SameSite            string `json:",default=Lax"`
+	Secure              bool   `json:",optional"`
+	AllowInsecureNonDev bool   `json:",default=false"`
+	MaxAgeSeconds       int    `json:",default=2592000"`
+}
+
 type DevAuthConf struct {
 	Enabled bool `json:",default=false"`
+}
+
+type SecurityConf struct {
+	AllowedOrigins []string `json:",optional"`
 }

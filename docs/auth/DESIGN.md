@@ -212,11 +212,27 @@ oauth:state:{state}
 
 ### 4.3 响应结构
 
-`RegisterResponse` / `LoginResponse` / `RefreshToken` 统一返回：
+Auth 内网 gRPC 的 `RegisterResponse` / `LoginResponse` / `RefreshToken` 仍包含：
 
 ```
 access_token, refresh_token, expires_in, token_type="Bearer", user
 ```
+
+Edge 对公网 HTTP 不返回 `refresh_token` 明文。`/v1/auth/register`、`/v1/auth/login`、`/v1/auth/refresh` 只返回：
+
+```json
+{
+  "access_token": "...",
+  "expires_in": 900,
+  "token_type": "Bearer",
+  "user": {
+    "id": "user_1",
+    "username": "alice"
+  }
+}
+```
+
+公网 refresh token 只通过 `refresh_token` HttpOnly Cookie 承载，默认 `Path=/v1/auth`、`SameSite=Lax`，生产环境必须 `Secure=true`。
 
 ---
 
@@ -231,7 +247,7 @@ access_token, refresh_token, expires_in, token_type="Bearer", user
 | `Register` | 无 | 本地注册并自动登录 |
 | `Login` | 无 | 账号（用户名/邮箱/手机）+ 密码 |
 | `Logout` | access 或 refresh | 撤销 refresh token |
-| `RefreshToken` | refresh_token | 轮换令牌 |
+| `RefreshToken` | refresh_token | 内网 RPC 参数为 refresh token；公网 Edge 从 HttpOnly Cookie 读取 |
 | `RedirectToGithubAuthorizeUrl` | 无 | GitHub 登录 Step 1 |
 | `GithubCallback` | 无 | GitHub 登录/绑定 Step 2 |
 | `LinkGitHub` | access_token | 已登录用户绑定 GitHub Step 1 |
@@ -380,25 +396,28 @@ UnlinkGitHub(access_token)
 ```mermaid
 sequenceDiagram
     participant C as Client
+    participant E as Edge
     participant A as Auth
     participant DB as PostgreSQL
 
-    C->>A: RefreshToken(refresh_token)
+    C->>E: POST /v1/auth/refresh with refresh_token Cookie
+    E->>A: RefreshToken(refresh_token)
     A->>A: SHA-256(refresh_token)
     A->>DB: 查 refresh_tokens WHERE hash AND revoked_at IS NULL AND expires_at > NOW()
     A->>DB: UPDATE 旧 token SET revoked_at = NOW()
     A->>A: 签发新 JWT + 新 refresh token
     A->>DB: INSERT 新 refresh_tokens
-    A-->>C: LoginResponse
+    A-->>E: access token + new refresh token
+    E-->>C: access token JSON + rotated HttpOnly Cookie
 ```
 
 ### 6.8 登出
 
 ```
-Logout(access_token?, refresh_token?)
+POST /v1/auth/logout with refresh_token Cookie
 ```
 
-- 优先按 `refresh_token` 哈希撤销对应行
+- Edge 从 HttpOnly Cookie 读取 refresh token，调用 Auth 撤销后清除 Cookie。
 - 若仅传 `access_token`，可通过 `jti` 黑名单（Redis，可选）或仅客户端丢弃（v1 最小实现：撤销 refresh）
 
 ---

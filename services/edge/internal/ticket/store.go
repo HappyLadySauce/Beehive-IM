@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
 
 var (
 	ErrMissingUserID  = errors.New("missing debug user id")
+	ErrMissingOrigin  = errors.New("missing ticket origin")
 	ErrMissingTicket  = errors.New("missing ticket")
 	ErrTicketNotFound = errors.New("ticket not found")
 	ErrTicketExpired  = errors.New("ticket expired")
@@ -56,6 +58,10 @@ func (s *Store) TTL() time.Duration {
 func (s *Store) Issue(userID, deviceID, sessionID, origin string) (Ticket, error) {
 	if userID == "" {
 		return Ticket{}, ErrMissingUserID
+	}
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return Ticket{}, ErrMissingOrigin
 	}
 	if deviceID == "" {
 		deviceID = "web-" + mustRandomToken(8)
@@ -103,7 +109,7 @@ func (s *Store) Consume(value, origin string) (Ticket, error) {
 	if !now.Before(t.ExpiresAt) {
 		return Ticket{}, ErrTicketExpired
 	}
-	if t.Origin != "" && t.Origin != origin {
+	if t.Origin == "" || origin == "" || t.Origin != origin {
 		return Ticket{}, ErrOriginMismatch
 	}
 

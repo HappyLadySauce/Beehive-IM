@@ -391,7 +391,13 @@ Web 客户端在消息写入 IndexedDB 后发送 delivered ack；用户实际打
 }
 ```
 
-当前实现支持按明确 `seqs` 批量上报 delivered/read ack；read ack 成功后会推进 Conversation `last_read_seq`：
+当前实现支持按明确 `seqs` 批量上报 delivered/read ack。Message 只会为同时满足以下条件的 seq 写入 receipt：
+
+- 消息真实存在于当前 `conversation_id`。
+- 当前用户拥有 Conversation 读权限。
+- seq 落在成员 `visible_from_seq` / `visible_to_seq` 可见范围内。
+
+`AckMessages` 返回的 `updated` 是实际成功写入或幂等更新的 receipt 数量。Conversation cursor 只使用“实际成功 ack 的最大 seq”推进：read ack 同时推进 `last_read_seq` 和 `last_delivered_seq`，delivered ack 只推进 `last_delivered_seq`。不存在、不可见或越界的 seq 不会推进 unread cursor；全部无效时返回 `accepted=true, updated=0`。
 
 ```json
 {
@@ -534,7 +540,7 @@ Web 客户端断网或无 leader 时：
 |----|------|
 | WebSocket 鉴权 | 浏览器使用一次性 `ws_ticket`；JWT/access token 禁止进入 WS query |
 | Origin | Edge 必须校验 Origin 白名单 |
-| XSS 风险 | refresh token 推荐使用 HttpOnly Secure SameSite Cookie；access token 尽量只保存在内存 |
+| XSS 风险 | refresh token 必须使用 HttpOnly Cookie；生产环境必须 Secure，access token 尽量只保存在内存 |
 | 内容校验 | Message 服务按 `content_type` 校验大小、字段和危险内容 |
 | 权限 | 每次发送、同步、ack 都必须校验用户会话成员关系 |
 | 日志 | 日志使用英文，禁止记录 token、ticket、完整消息内容和隐私字段 |
@@ -587,6 +593,6 @@ Web 客户端建议上报：
 - [ ] Web 多标签页只保留一个 WebSocket leader。
 - [x] WebSocket 鉴权使用一次性 `ws_ticket`，JWT/access token 不进入 WS query。
 - [x] delivered/read ack 支持按 seqs 批量、幂等和权限校验。
-- [x] `AckMessages(read)` 已推进 Conversation `last_read_seq`，会话列表返回精确 unread count。
+- [x] `AckMessages(read)` 只按真实存在且用户可见的最大成功 ack seq 推进 Conversation `last_read_seq`，会话列表返回精确 unread count。
 - [x] `ListMessages` / `SyncMessages` 已按成员 `visible_from_seq` / `visible_to_seq` 过滤。
 - [ ] 指标覆盖发送延迟、同步缺口、outbox pending、重连次数和本地 pending 数。
